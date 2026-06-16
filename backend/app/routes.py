@@ -11,6 +11,7 @@ from fastapi import (
     HTTPException,
     Depends
 )
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -134,6 +135,9 @@ def recognize_user(
         user_id, similarity = search_embedding(
             embedding
         )
+        print(
+    f"DEBUG: user_id={user_id}, similarity={similarity}"
+)
 
         if (
             user_id is None
@@ -154,6 +158,8 @@ def recognize_user(
             .filter(User.id == user_id)
             .first()
         )
+        
+        print("DEBUG: matched_user =", matched_user)
 
         if matched_user is None:
 
@@ -196,6 +202,7 @@ def visitor_check_in(
         faces = detect_faces(
             temp_photo_path
         )
+        print("Detected Faces:", len(faces))
 
     except ValueError as e:
 
@@ -216,7 +223,10 @@ def visitor_check_in(
         user_id, similarity = search_embedding(
             embedding
         )
-
+        print(
+        f"FAISS -> user_id={user_id}, similarity={similarity}"
+        )
+        
         if (
             user_id is None
             or similarity < 0.5
@@ -243,6 +253,8 @@ def visitor_check_in(
             .filter(User.id == user_id)
             .first()
         )
+        
+        print("Matched User:", matched_user)
 
         if matched_user is None:
             continue
@@ -291,6 +303,109 @@ def visitor_check_in(
         "visitors": results
     }
 
+@router.post("/visitor/check-out")
+def visitor_check_out(
+    photo: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+
+    temp_photo_path = save_uploaded_file(
+        photo,
+        "uploads/temp"
+    )
+
+    try:
+        faces = detect_faces(
+            temp_photo_path
+        )
+
+    except ValueError as e:
+
+        if os.path.exists(temp_photo_path):
+            os.remove(temp_photo_path)
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+
+    results = []
+
+    for face in faces:
+
+        embedding = face["embedding"]
+
+        user_id, similarity = search_embedding(
+            embedding
+        )
+
+        if (
+            user_id is None
+            or similarity < 0.5
+        ):
+
+            results.append({
+                "recognized": False,
+                "name": "Unknown",
+                "message": "Cannot check out unknown visitor"
+            })
+
+            continue
+
+        matched_user = (
+            db.query(User)
+            .filter(User.id == user_id)
+            .first()
+        )
+
+        if matched_user is None:
+
+            results.append({
+                "recognized": False,
+                "name": "Unknown",
+                "message": "User not found"
+            })
+
+            continue
+
+        active_visit = (
+            db.query(VisitorLog)
+            .filter(
+                VisitorLog.user_id == matched_user.id,
+                VisitorLog.status == "INSIDE"
+            )
+            .first()
+        )
+
+        if active_visit is None:
+
+            results.append({
+                "recognized": True,
+                "name": matched_user.name,
+                "message": "Visitor is not inside"
+            })
+
+            continue
+
+        active_visit.status = "OUT"
+
+        active_visit.exit_time = datetime.utcnow()
+
+        db.commit()
+
+        results.append({
+            "recognized": True,
+            "name": matched_user.name,
+            "status": "CHECKED_OUT"
+        })
+
+    if os.path.exists(temp_photo_path):
+
+        os.remove(temp_photo_path)
+
+    return {
+        "visitors": results
+    }
 
 @router.get("/users")
 def get_users(
@@ -349,4 +464,21 @@ def delete_user(
             f"User {user.name} "
             "deleted successfully"
         )
+    }
+    
+@router.get("/debug/faiss")
+def debug_faiss():
+
+    from app.faiss_service import (
+        load_or_create_index,
+        load_mapping
+    )
+
+    index = load_or_create_index()
+
+    mapping = load_mapping()
+
+    return {
+        "faiss_vectors": index.ntotal,
+        "mapping": mapping
     }

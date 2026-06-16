@@ -85,46 +85,6 @@ def add_embedding(
 
     save_mapping(mapping)
 
-def search_embedding(
-    embedding
-):
-
-    index = load_or_create_index()
-
-    mapping = load_mapping()
-
-    if index.ntotal == 0:
-
-        return None, 0
-
-    embedding = embedding.astype(
-        np.float32
-    )
-
-    embedding = embedding.reshape(
-        1,
-        -1
-    )
-
-    faiss.normalize_L2(
-        embedding
-    )
-
-    similarity, indices = index.search(
-        embedding,
-        1
-    )
-
-    score = similarity[0][0]
-
-    idx = indices[0][0]
-
-    if idx == -1:
-
-        return None, score
-
-    return mapping[idx], score
-
 def search_embedding(embedding):
 
     index = load_or_create_index()
