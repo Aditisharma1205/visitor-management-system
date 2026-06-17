@@ -11,7 +11,8 @@ function Navbar() {
                 marginBottom: "20px",
             }}
         >
-            <Link to="/">Home</Link>
+
+            <Link to="/dashboard">Dashboard</Link>
 
             <Link to="/register">
                 Register

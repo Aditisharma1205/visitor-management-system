@@ -122,3 +122,48 @@ def search_embedding(embedding):
         return None, similarity
 
     return mapping[idx], similarity
+
+def rebuild_faiss(db):
+
+    index = faiss.IndexFlatIP(
+        EMBEDDING_DIM
+    )
+
+    mapping = []
+
+    users = db.query(User).all()
+
+    for user in users:
+
+        if (
+            user.embedding_path is None
+            or not os.path.exists(
+                user.embedding_path
+            )
+        ):
+            continue
+
+        embedding = np.load(
+            user.embedding_path
+        ).astype(np.float32)
+
+        embedding = embedding.reshape(
+            1,
+            -1
+        )
+
+        faiss.normalize_L2(
+            embedding
+        )
+
+        index.add(
+            embedding
+        )
+
+        mapping.append(
+            user.id
+        )
+
+    save_index(index)
+
+    save_mapping(mapping)

@@ -28,7 +28,8 @@ from app.face_service import (
 from app.utils import save_uploaded_file
 from app.faiss_service import (
     add_embedding,
-    search_embedding
+    search_embedding,
+    rebuild_faiss
 )
 
 router = APIRouter()
@@ -457,7 +458,10 @@ def delete_user(
         os.remove(user.embedding_path)
 
     db.delete(user)
+
     db.commit()
+
+    rebuild_faiss(db)
 
     return {
         "message": (
@@ -481,4 +485,166 @@ def debug_faiss():
     return {
         "faiss_vectors": index.ntotal,
         "mapping": mapping
+    }
+    
+@router.get("/visitor/inside")
+def get_current_visitors(
+    db: Session = Depends(get_db)
+):
+
+    visitors = (
+        db.query(
+            VisitorLog,
+            User
+        )
+        .join(
+            User,
+            VisitorLog.user_id == User.id
+        )
+        .filter(
+            VisitorLog.status == "INSIDE"
+        )
+        .all()
+    )
+
+    return [
+        {
+            "visitor_log_id": log.id,
+            "user_id": user.id,
+            "name": user.name,
+            "entry_time": log.entry_time
+        }
+        for log, user in visitors
+    ]
+
+@router.get("/visitor/history")
+def get_visitor_history(
+    db: Session = Depends(get_db)
+):
+
+    history = (
+        db.query(
+            VisitorLog,
+            User
+        )
+        .join(
+            User,
+            VisitorLog.user_id == User.id
+        )
+        .order_by(
+            VisitorLog.entry_time.desc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "visitor_log_id": log.id,
+            "user_id": user.id,
+            "name": user.name,
+            "entry_time": log.entry_time,
+            "exit_time": log.exit_time,
+            "status": log.status
+        }
+        for log, user in history
+    ]
+    
+@router.get("/unknown-visitors")
+def get_unknown_visitors(
+    db: Session = Depends(get_db)
+):
+
+    visitors = (
+        db.query(UnknownVisitor)
+        .order_by(
+            UnknownVisitor.detected_at.desc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "id": visitor.id,
+            "image_path": visitor.image_path,
+            "detected_at": visitor.detected_at,
+            "reviewed": visitor.reviewed
+        }
+        for visitor in visitors
+    ]
+    
+@router.put(
+    "/unknown-visitors/{visitor_id}/review"
+)
+def mark_unknown_visitor_reviewed(
+    visitor_id: int,
+    db: Session = Depends(get_db)
+):
+
+    visitor = (
+        db.query(UnknownVisitor)
+        .filter(
+            UnknownVisitor.id == visitor_id
+        )
+        .first()
+    )
+
+    if visitor is None:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Visitor not found"
+        )
+
+    visitor.reviewed = True
+
+    db.commit()
+
+    return {
+        "message":
+            "Unknown visitor marked as reviewed"
+    }
+    
+@router.get("/dashboard/stats")
+def dashboard_stats(
+    db: Session = Depends(get_db)
+):
+
+    current_visitors = (
+        db.query(VisitorLog)
+        .filter(
+            VisitorLog.status == "INSIDE"
+        )
+        .count()
+    )
+
+    total_visits = (
+        db.query(VisitorLog)
+        .count()
+    )
+
+    unknown_count = (
+        db.query(UnknownVisitor)
+        .filter(
+            UnknownVisitor.reviewed == False
+        )
+        .count()
+    )
+
+    total_users = (
+        db.query(User)
+        .count()
+    )
+
+    return {
+        "current_visitors":
+            current_visitors,
+
+        "total_visits":
+            total_visits,
+
+        "unknown_visitors":
+            unknown_count,
+
+        "registered_users":
+            total_users
     }

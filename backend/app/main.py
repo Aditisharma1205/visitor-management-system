@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from fastapi.staticfiles import StaticFiles
 from app.routes import router
 from app.database import engine
 from app.models import Base
+
 
 app = FastAPI(
     title="VisionPass API",
@@ -23,6 +24,11 @@ app.add_middleware(
 )
 
 Base.metadata.create_all(bind=engine)
+app.mount(
+    "/uploads",
+    StaticFiles(directory="uploads"),
+    name="uploads"
+)
 
 app.include_router(router)
 
@@ -32,3 +38,4 @@ def home():
     return {
         "message": "VisionPass API is running"
     }
+    
