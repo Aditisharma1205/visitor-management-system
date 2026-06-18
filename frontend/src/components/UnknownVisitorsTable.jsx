@@ -52,7 +52,6 @@ function UnknownVisitorsTable() {
 
         <div style={{ marginTop: "40px" }}>
 
-            <h2>Unknown Visitors</h2>
 
             <table className="w-full"
                 border="1"

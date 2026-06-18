@@ -16,7 +16,6 @@ function CurrentVisitorsTable() {
 
     return (
         <div style={{ marginTop: "40px" }}>
-            <h2>Current Visitors</h2>
 
             <table className="w-full"
                 border="1"

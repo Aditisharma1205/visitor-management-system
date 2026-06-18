@@ -12,7 +12,6 @@ function VisitorHistoryTable() {
 
     return (
         <div style={{ marginTop: "40px" }}>
-            <h2>Visitor History</h2>
 
             <table className="w-full"
                 border="1"

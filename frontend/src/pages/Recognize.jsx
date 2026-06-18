@@ -16,7 +16,7 @@ function Recognize() {
         if (isRunning) {
             interval = setInterval(() => {
                 recognizeFace();
-            }, 2000);
+            }, 5000);
         }
 
         return () => {
@@ -111,6 +111,7 @@ function Recognize() {
                 error.response &&
                 error.response.data
             ) {
+
                 setResult({
                     recognized: false,
                     name: "",
@@ -123,24 +124,31 @@ function Recognize() {
     };
 
     return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "20px",
-                padding: "20px",
-            }}
-        >
-            <h1>Live Face Recognition</h1>
+    <div className="max-w-7xl mx-auto">
+
+        <div className="mb-8">
+            <h1 className="text-4xl font-bold">
+                Live Recognition
+            </h1>
+
+            <p className="text-slate-500 mt-2">
+                Real-time AI face recognition
+            </p>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+
+            <div className="lg:col-span-2">
+
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
 
                     <div
-            style={{
-                position: "relative",
-                width: 640,
-                height: 480,
-            }}
-        >
+                        className="relative mx-auto"
+                        style={{
+                            width: 640,
+                            height: 480,
+                        }}
+                    >
             <Webcam
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
@@ -160,58 +168,103 @@ function Recognize() {
                     pointerEvents: "none",
                 }}
             />
-        </div>
-            <div
-                style={{
-                    display: "flex",
-                    gap: "10px",
-                }}
-            >
-                <button
-                    onClick={() =>
-                        setIsRunning(true)
-                    }
-                >
-                    Start Recognition
-                </button>
+                           </div>
 
-                <button
-                    onClick={() =>
-                        setIsRunning(false)
+                    <div className="flex gap-4 mt-6">
+
+                        <button
+                            onClick={() =>
+                                setIsRunning(true)
+                            }
+                            className="bg-green-600 text-white px-6 py-3 rounded-xl"
+                        >
+                            Start Recognition
+                        </button>
+
+                        <button
+                            onClick={() =>
+                                setIsRunning(false)
+                            }
+                            className="bg-red-600 text-white px-6 py-3 rounded-xl"
+                        >
+                            Stop Recognition
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </div>
+            <div>
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+<div className="mb-6">
+
+    <div
+        className={`inline-flex px-3 py-1 rounded-full text-sm ${
+            isRunning
+                ? "bg-green-100 text-green-700"
+                : "bg-red-100 text-red-700"
+        }`}
+    >
+        {
+            isRunning
+                ? "Recognition Running"
+                : "Recognition Stopped"
+        }
+    </div>
+
+</div>
+    <h2 className="text-xl font-semibold mb-4">
+        Detected Faces
+    </h2>
+        {
+    faces.length === 0 && (
+        <div className="text-slate-500">
+            No faces detected
+        </div>
+    )
+}
+{
+    faces.map((face, index) => (
+
+        <div
+            key={index}
+            className="border rounded-2xl p-4 mb-4"
+        >
+
+            <div className="flex justify-between">
+
+                <h3 className="font-semibold">
+                    {face.name}
+                </h3>
+
+                <span
+                    className={
+                        face.recognized
+                            ? "text-green-600"
+                            : "text-red-600"
                     }
                 >
-                    Stop Recognition
-                </button>
+                    {
+                        face.recognized
+                            ? "Recognized"
+                            : "Unknown"
+                    }
+                </span>
+
             </div>
 
-            <div>
-            <h2>Detected Faces</h2>
+            <p className="text-sm text-slate-500 mt-2">
+                Similarity:
+                {" "}
+                {face.similarity.toFixed(2)}
+            </p>
 
-            {faces.length === 0 ? (
-                <p>No faces detected</p>
-            ) : (
-                faces.map((face, index) => (
-                    <div key={index}>
-                        <strong>
-                            {face.name}
-                        </strong>
-
-                        {" | "}
-
-                        {face.recognized
-                            ? "Recognized"
-                            : "Unknown"}
-
-                        {" | "}
-
-                        Similarity:
-                        {" "}
-                        {face.similarity.toFixed(
-                            2
-                        )}
-                    </div>
-                ))
-            )}
+        </div>
+    ))
+}
+        </div>
+        </div>
         </div>
         </div>
     );

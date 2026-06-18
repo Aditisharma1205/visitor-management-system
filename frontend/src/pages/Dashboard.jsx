@@ -21,6 +21,8 @@ function Dashboard() {
         unknown_visitors: 0,
         registered_users: 0,
     });
+    const sectionClass =
+    "bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mt-8";
 
     useEffect(() => {
 
@@ -39,15 +41,18 @@ function Dashboard() {
 
     return (
 
-        <div>
+            <div className="mb-10">
 
-            <h1 className="text-4xl font-bold mb-8">
-
-                VisionPass Dashboard
-
+            <h1 className="text-4xl font-bold mb-2">
+                Dashboard
             </h1>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+            <p className="text-slate-500">
+                Real-time visitor analytics
+            </p>
+
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mt-8">
 
                 <StatsCard
                     title="Visitors Inside"
@@ -75,7 +80,7 @@ function Dashboard() {
 
             </div>
 
-            <div className="bg-white rounded-2xl shadow-md p-6 mt-8">
+            <div className={sectionClass}>
 
                 <h2 className="text-2xl font-semibold mb-4">
 
@@ -87,7 +92,7 @@ function Dashboard() {
 
             </div>
 
-            <div className="bg-white rounded-2xl shadow-md p-6 mt-8">
+            <div className={sectionClass}>
 
                 <h2 className="text-2xl font-semibold mb-4">
 
@@ -99,7 +104,7 @@ function Dashboard() {
 
             </div>
 
-            <div className="bg-white rounded-2xl shadow-md p-6 mt-8">
+            <div className={sectionClass}>
 
                 <h2 className="text-2xl font-semibold mb-4">
 
