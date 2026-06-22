@@ -4,13 +4,15 @@ from fastapi.staticfiles import StaticFiles
 from app.routes import router
 from app.database import engine
 from app.models import Base
-
+from app.websocket_routes import router as ws_router
 
 app = FastAPI(
     title="VisionPass API",
     version="1.0.0",
     description="Face Recognition Backend using InsightFace"
 )
+
+app.include_router(ws_router)
 
 app.add_middleware(
     CORSMiddleware,

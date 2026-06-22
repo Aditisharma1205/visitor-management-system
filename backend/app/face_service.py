@@ -46,3 +46,22 @@ def detect_faces(image_path: str):
         })
 
     return results
+
+def detect_faces_from_frame(
+    image
+):
+
+    faces = face_app.get(image)
+
+    results = []
+
+    for face in faces:
+
+        results.append(
+            {
+                "embedding": face.embedding,
+                "bbox": face.bbox.astype(int).tolist()
+            }
+        )
+
+    return results

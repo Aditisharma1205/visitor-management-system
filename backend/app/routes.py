@@ -110,6 +110,10 @@ def register_user(
     user.id,
     user.name
 )
+    print(
+    "REGISTER EMBEDDING NORM:",
+    np.linalg.norm(embedding)
+)
 
     return {
         "message": "User registered successfully",
@@ -151,8 +155,9 @@ def recognize_user(
         embedding = face["embedding"]
 
         track_id = assign_track(
-            embedding
-        )
+    embedding,
+    face["bbox"]
+)
 
         print(
     f"TRACK ID: {track_id}"
@@ -188,6 +193,13 @@ def recognize_user(
 )
         if len(cluster_embeddings) < 5:
 
+            results.append({
+                "recognized": False,
+                "name": f"Collecting {len(cluster_embeddings)}/5",
+                "similarity": 0.0,
+                "bbox": face["bbox"]
+            })
+
             print(
             f"TRACK {track_id} "
             f"COLLECTING "
@@ -203,6 +215,10 @@ def recognize_user(
         )
         print(
     "AGGREGATED EMBEDDING CREATED"
+)       
+        print(
+    "LIVE EMBEDDING NORM:",
+    np.linalg.norm(aggregated_embedding)
 )
 
         user_id, similarity = (
@@ -308,10 +324,10 @@ def recognize_user(
         recognized_result
     )
 
-        if os.path.exists(temp_photo_path):
+    if os.path.exists(temp_photo_path):
             os.remove(temp_photo_path)
 
-        return {
+    return {
         "faces": results
     }
 

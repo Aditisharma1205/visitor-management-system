@@ -15,8 +15,8 @@ function Recognize() {
 
         if (isRunning) {
             interval = setInterval(() => {
-                recognizeFace();
-            }, 5000);
+                sendFrame();
+            }, 1000);
         }
 
         return () => {
@@ -122,6 +122,68 @@ function Recognize() {
             }
         }
     };
+    const socket = useRef(null);
+    useEffect(() => {
+
+    socket.current = new WebSocket(
+        "ws://127.0.0.1:8000/ws"
+    );
+
+    socket.current.onopen = () => {
+        console.log("WS CONNECTED");
+    };
+
+    socket.current.onclose = () => {
+        console.log("WS CLOSED");
+    };
+
+    socket.current.onerror = (error) => {
+        console.log("WS ERROR", error);
+    };
+
+    socket.current.onmessage = (
+    event
+) => {
+
+    const data = JSON.parse(
+        event.data
+    );
+
+    console.log(
+        "RECOGNIZED:",
+        data
+    );
+
+};
+
+    return () => {
+        socket.current?.close();
+    };
+
+}, []);
+    const sendFrame = () => {
+
+    const imageSrc =
+        webcamRef.current?.getScreenshot();
+
+    if (
+        !imageSrc ||
+        !socket.current
+    ) {
+        return;
+    }
+
+    if (
+        socket.current.readyState === 1
+    ) {
+
+        socket.current.send(
+            imageSrc
+        );
+
+    }
+
+};
 
     return (
     <div className="max-w-7xl mx-auto">
@@ -189,7 +251,35 @@ function Recognize() {
                         >
                             Stop Recognition
                         </button>
+                         <button
+    onClick={() => {
 
+        if (
+            socket.current &&
+            socket.current.readyState === 1
+        ) {
+
+            socket.current.send(
+                "hello"
+            );
+
+            console.log(
+                "HELLO SENT"
+            );
+
+        } else {
+
+            console.log(
+                "SOCKET NOT OPEN"
+            );
+
+        }
+
+    }}
+    className="bg-blue-600 text-white px-6 py-3 rounded-xl"
+>
+    Test Socket
+</button>
                     </div>
 
                 </div>
