@@ -1,177 +1,123 @@
-🧠 VisionPass
-AI-Powered Real-Time Face Recognition & Identity Tracking System
+# 🧠 VisionPass  
+## AI-Powered Real-Time Face Recognition & Identity Tracking System
 
-VisionPass is a real-time face recognition system built for continuous identity tracking using WebSockets, InsightFace embeddings, ChromaDB vector search, and session-based tracking logic. It processes live webcam streams and maintains identity consistency across frames using caching, clustering, and track-based persistence.
+![Architecture](assets/architecture.png)
 
-🚀 Key Capabilities
-👤 User registration with face capture
-🧠 High-accuracy face embeddings using InsightFace
-🗄️ Hybrid storage system (MySQL + ChromaDB)
-⚡ Real-time webcam streaming via WebSockets
-🔍 Vector similarity-based identity recognition
-🧩 Track-based identity persistence across frames
-📦 Embedding clustering for noise reduction
-⚡ Recognition caching for performance optimization
-📊 Structured visitor logging system
-🏗️ System Architecture
+VisionPass is a real-time face recognition system built for continuous identity tracking using **WebSockets, InsightFace embeddings, ChromaDB vector search, MySQL, and session-based tracking logic**.
 
-VisionPass is built as a multi-layer identity recognition pipeline:
+It processes live webcam streams and maintains identity consistency across frames using caching, clustering, and track-based persistence.
 
-1. User Registration Layer
+---
 
-Each user is enrolled into the system through face capture and embedding generation.
+## 🚀 Key Capabilities
 
-Flow:
+- User registration with face capture
+- High-accuracy InsightFace embeddings
+- Hybrid storage (MySQL + ChromaDB)
+- Real-time WebSocket streaming
+- Vector similarity-based recognition
+- Track-based identity persistence
+- Embedding clustering for noise reduction
+- Recognition caching for performance optimization
+- Structured visitor logging system
 
-User Registration
-      ↓
-Face Capture (Image Input)
-      ↓
-InsightFace Embedding Generation
-      ↓
-MySQL → User Metadata Storage
-ChromaDB → Vector Embedding Storage
+---
 
-Purpose:
+## 🏗️ System Architecture
 
-Maintain structured user records (MySQL)
-Enable fast semantic face search (ChromaDB)
-2. Real-Time Recognition Layer
+![System Architecture](assets/architecture.png)
 
-The system processes live video streams using WebSockets for low-latency inference.
+---
 
-Flow:
+## ⚙️ System Flow
 
-Webcam Stream (Frontend)
-        ↓
-WebSocket Transmission
-        ↓
-Backend Frame Processing
-        ↓
-Face Detection (InsightFace)
-        ↓
-Embedding Extraction
-        ↓
-ChromaDB Similarity Search
-        ↓
-Identity Resolution
+### 1. User Registration
+Face Capture → Embedding Generation → MySQL + ChromaDB Storage
 
-Output:
+### 2. Real-Time Recognition
+Webcam → WebSocket → Backend → Face Detection → Embedding → ChromaDB → Identity
 
-Real-time identity detection from live camera feed
-Instant mapping of faces to registered users
-3. Tracking & Identity Persistence Layer
+### 3. Tracking Layer
+Face → Track ID → Persistent Identity Across Frames
 
-To ensure stability across frames, detected faces are assigned persistent track identities.
+### 4. Clustering Layer
+Frame Embeddings → Aggregation → Stable Identity Vector
 
-Flow:
+### 5. Recognition Cache
+Track ID → Cached Identity → Skip Re-Query
 
-Detected Face
-      ↓
-Track Assignment (Track ID)
-      ↓
-Continuous Frame Association
-      ↓
-Track Persistence Logic
+### 6. Visitor Logging
+Identity Detected → Session Start → Session End → DB Log
 
-Capabilities:
+---
 
-Maintains identity across consecutive frames
-Reduces repeated recognition calls
-Stabilizes detection under motion or occlusion
-4. Embedding Clustering Layer
+## 🧰 Tech Stack
 
-Multiple embeddings from the same identity are aggregated to improve robustness.
+### Backend
+- FastAPI
+- WebSockets
+- InsightFace
+- ChromaDB
+- MySQL
+- NumPy
 
-Flow:
+### Frontend
+- React (Vite)
+- WebSocket Client
+- Webcam Integration
+- Axios
 
-Frame Embeddings
-      ↓
-Temporal Aggregation
-      ↓
-Clustered Representation
-      ↓
-Refined Identity Vector
+---
 
-Impact:
+## ⚡ Highlights
 
-Reduces noise from lighting, angle, and blur
-Improves recognition consistency
-Produces more stable identity representation
-5. Recognition Cache Layer
+- Real-time streaming architecture
+- Hybrid SQL + vector database system
+- Track-based identity persistence
+- Embedding clustering for stability
+- Low-latency WebSocket pipeline
+- Optimized caching system
 
-To optimize performance, repeated recognition calls are minimized using caching.
+---
 
-Flow:
+## 🧠 Design Philosophy
 
-Track ID → Identity Match
-      ↓
-Cache Storage
-      ↓
-Reuse Identity for Subsequent Frames
+VisionPass is built around **stream-based identity resolution**, not frame-by-frame recognition.
 
-Benefit:
+It ensures:
+- Temporal consistency over raw detection
+- Stable identity across frames
+- Reduced redundant computation
+- Scalable real-time inference
 
-Reduces redundant vector database queries
-Improves real-time FPS performance
-Stabilizes identity output over time
-6. Visitor Logging System
+---
 
-The system maintains structured logs of identity activity.
+## 📊 System Summary
 
-Data Stored:
+| Layer | Purpose |
+|------|--------|
+| Registration | Identity onboarding |
+| Recognition | Face identification |
+| Tracking | Identity persistence |
+| Clustering | Embedding stability |
+| Cache | Performance optimization |
+| Logging | Session history |
 
-User ID
-Entry Time
-Exit Time
-Session Status
+---
 
-Flow:
+## 🧾 Output
 
-Identity Detected → Session Start
-Identity Lost → Session End
-Log Stored in Database
-🧰 Tech Stack
-Backend
-FastAPI
-WebSockets
-InsightFace
-ChromaDB (Vector Database)
-MySQL
-NumPy
-Frontend
-React (Vite)
-WebSocket Client
-Webcam Integration
-Axios
-⚙️ System Highlights
-Real-time face recognition pipeline optimized for streaming input
-Hybrid database architecture for structured + vector storage
-Track-based identity persistence for temporal consistency
-Embedding clustering for robust recognition under variation
-Low-latency WebSocket communication pipeline
-Scalable recognition caching layer for performance efficiency
-🧠 Core Design Philosophy
+- Real-time identity recognition
+- Persistent tracking across frames
+- Structured visitor session logs
+- Optimized inference pipeline
 
-VisionPass is designed around a streaming identity resolution model, where:
+---
 
-Recognition is not frame-based
-Identity is not re-evaluated unnecessarily
-Temporal consistency is prioritized over per-frame accuracy
-System stability is achieved through tracking + caching + clustering layers
-📊 System Summary
-Layer	Purpose
-Registration	Identity onboarding
-Recognition	Real-time face identification
-Tracking	Temporal consistency
-Clustering	Embedding stabilization
-Cache	Performance optimization
-Logging	Session history
-🧾 Output
+## 📦 Setup
 
-VisionPass produces:
-
-Live identity recognition
-Persistent track-based user mapping
-Structured visitor session logs
-Optimized real-time inference pipeline
+### Backend
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
