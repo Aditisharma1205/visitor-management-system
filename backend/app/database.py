@@ -1,12 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = (
-    "mysql+pymysql://root:visionpass123@localhost/visionpass"
-)
+from app.config import settings
 
 engine = create_engine(
-    DATABASE_URL
+    settings.database_url
 )
 
 SessionLocal = sessionmaker(

@@ -1,51 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
-import api from "../services/api";
+
+const FACE_WIDTH = 640;
+const FACE_HEIGHT = 480;
+const STALE_MS = 2000;
 
 function Recognize() {
     const webcamRef = useRef(null);
     const canvasRef = useRef(null);
+    const frameInterval = useRef(null);
+    const socket = useRef(null);
+    const frameInFlight = useRef(false);
 
     const [isRunning, setIsRunning] = useState(false);
-
     const [faces, setFaces] = useState([]);
 
-    useEffect(() => {
-        let interval;
-
-        if (isRunning) {
-            interval = setInterval(() => {
-                sendFrame();
-            }, 1000);
-        }
-
-        return () => {
-            clearInterval(interval);
-        };
-    }, [isRunning]);
-    const drawBoxes = (faces) => {
+    const drawBoxes = (faceList) => {
         const canvas = canvasRef.current;
 
         if (!canvas) return;
 
         const ctx = canvas.getContext("2d");
 
-        ctx.clearRect(
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        faces.forEach((face) => {
-            const [x1, y1, x2, y2] =
-                face.bbox;
+        faceList.forEach((face) => {
+            if (!face.bbox) return;
 
-            ctx.strokeStyle =
-                face.recognized
-                    ? "green"
-                    : "red";
+            const [x1, y1, x2, y2] = face.bbox;
 
+            const color = face.recognized ? "green" : "red";
+
+            ctx.strokeStyle = color;
             ctx.lineWidth = 3;
 
             ctx.strokeRect(
@@ -55,307 +41,411 @@ function Recognize() {
                 y2 - y1
             );
 
-            ctx.fillStyle =
-                face.recognized
-                    ? "green"
-                    : "red";
-
-            ctx.font =
-                "18px Arial";
+            ctx.fillStyle = color;
+            ctx.font = "18px Arial";
 
             ctx.fillText(
-                face.name,
+                face.name || "Unknown",
                 x1,
-                y1 - 10
+                y1 > 20 ? y1 - 10 : 20
             );
         });
     };
 
-    const recognizeFace = async () => {
-        try {
-            const imageSrc = webcamRef.current.getScreenshot();
+    const connectSocket = () => {
+        if (
+            socket.current &&
+            socket.current.readyState === WebSocket.OPEN
+        ) {
+            return;
+        }
 
-            if (!imageSrc) {
+        socket.current = new WebSocket(
+            "ws://127.0.0.1:8000/ws"
+        );
+
+        socket.current.onopen = () => {
+            console.log("WS CONNECTED");
+        };
+
+        socket.current.onclose = () => {
+            console.log("WS CLOSED");
+            frameInFlight.current = false;
+        };
+
+        socket.current.onerror = (error) => {
+            console.error("WS ERROR", error);
+            frameInFlight.current = false;
+        };
+
+        socket.current.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "frame_summary") {
+                frameInFlight.current = false;
+
+                setFaces((prev) =>
+                    prev.filter((face) =>
+                        data.active_track_ids.includes(
+                            face.track_id
+                        )
+                    )
+                );
+
                 return;
             }
 
-            const blob = await fetch(imageSrc).then((res) =>
-                res.blob()
-            );
+            setFaces((prev) => {
+                const filtered = prev.filter((face) => {
+                    if (
+                        face.track_id === data.track_id
+                    )
+                        return false;
 
-            const formData = new FormData();
+                    if (
+                        data.recognized &&
+                        face.recognized &&
+                        face.user_id === data.user_id
+                    )
+                        return false;
 
-            formData.append(
-                "photo",
-                blob,
-                "webcam.jpg"
-            );
+                    if (
+                        data.recognized &&
+                        face.name === data.name
+                    )
+                        return false;
 
-            const response = await api.post(
-                "/recognize",
-                formData,
-                {
-                    headers: {
-                        "Content-Type":
-                            "multipart/form-data",
-                    },
-                }
-            );
-
-            setFaces(response.data.faces || []);
-            drawBoxes(response.data.faces || []);
-        } catch (error) {
-            console.error(error);
-
-            if (
-                error.response &&
-                error.response.data
-            ) {
-
-                setResult({
-                    recognized: false,
-                    name: "",
-                    similarity: 0,
-                    message:
-                        error.response.data.detail,
+                    return true;
                 });
-            }
-        }
+
+                return [
+                    ...filtered,
+                    {
+                        ...data,
+                        lastSeen: Date.now(),
+                    },
+                ];
+            });
+        };
     };
-    const socket = useRef(null);
+
     useEffect(() => {
+        connectSocket();
 
-    socket.current = new WebSocket(
-        "ws://127.0.0.1:8000/ws"
-    );
+        return () => {
+            clearInterval(frameInterval.current);
+            frameInterval.current = null;
+            console.log("INTERVAL CLEARED");
+            if (socket.current) {
+                socket.current.close();
+            }
+        };
+    }, []);
 
-    socket.current.onopen = () => {
-        console.log("WS CONNECTED");
-    };
+    useEffect(() => {
+        drawBoxes(faces);
+    }, [faces]);
 
-    socket.current.onclose = () => {
-        console.log("WS CLOSED");
-    };
+    useEffect(() => {
+        const cleanup = setInterval(() => {
+            setFaces((prev) =>
+                prev.filter(
+                    (face) =>
+                        Date.now() - face.lastSeen <
+                        STALE_MS
+                )
+            );
+        }, 1000);
 
-    socket.current.onerror = (error) => {
-        console.log("WS ERROR", error);
-    };
+        return () => clearInterval(cleanup);
+    }, []);
 
-    socket.current.onmessage = (
-    event
-) => {
+    const startRecognition = () => {
 
-    const data = JSON.parse(
-        event.data
-    );
-
-    console.log(
-        "RECOGNIZED:",
-        data
-    );
-
-};
-
-    return () => {
-        socket.current?.close();
-    };
-
-}, []);
-    const sendFrame = () => {
-
-    const imageSrc =
-        webcamRef.current?.getScreenshot();
-
-    if (
-        !imageSrc ||
-        !socket.current
-    ) {
+    if (frameInterval.current) {
+        console.log("INTERVAL ALREADY RUNNING");
         return;
     }
 
+    console.log("START CLICKED");
+
+    // Create socket if needed
     if (
-        socket.current.readyState === 1
+        !socket.current ||
+        socket.current.readyState === WebSocket.CLOSED
     ) {
 
-        socket.current.send(
-            imageSrc
+        console.log("CREATING WS");
+
+        socket.current = new WebSocket(
+            "ws://127.0.0.1:8000/ws"
         );
 
+        socket.current.onopen = () => {
+            console.log("WS CONNECTED");
+        };
+
+        socket.current.onclose = () => {
+            console.log("WS CLOSED");
+            frameInFlight.current = false;
+        };
+
+        socket.current.onerror = (error) => {
+            console.error("WS ERROR", error);
+            frameInFlight.current = false;
+        };
+
+        socket.current.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "frame_summary") {
+
+                frameInFlight.current = false;
+
+                setFaces((prev) =>
+                    prev.filter((face) =>
+                        data.active_track_ids.includes(
+                            face.track_id
+                        )
+                    )
+                );
+
+                return;
+            }
+
+            setFaces((prev) => {
+
+                const filtered = prev.filter((face) => {
+
+                    if (
+                        face.track_id === data.track_id
+                    )
+                        return false;
+
+                    if (
+                        data.recognized &&
+                        face.recognized &&
+                        face.user_id === data.user_id
+                    )
+                        return false;
+
+                    if (
+                        data.recognized &&
+                        face.name === data.name
+                    )
+                        return false;
+
+                    return true;
+                });
+
+                return [
+                    ...filtered,
+                    {
+                        ...data,
+                        lastSeen: Date.now(),
+                    },
+                ];
+            });
+        };
     }
 
-};
+    setIsRunning(true);
 
-    return (
-    <div className="max-w-7xl mx-auto">
+    console.log("CREATING INTERVAL");
 
-        <div className="mb-8">
-            <h1 className="text-4xl font-bold">
-                Live Recognition
-            </h1>
-
-            <p className="text-slate-500 mt-2">
-                Real-time AI face recognition
-            </p>
-        </div>
-
-        <div className="grid lg:grid-cols-3 gap-6">
-
-            <div className="lg:col-span-2">
-
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-
-                    <div
-                        className="relative mx-auto"
-                        style={{
-                            width: 640,
-                            height: 480,
-                        }}
-                    >
-            <Webcam
-                ref={webcamRef}
-                screenshotFormat="image/jpeg"
-                width={640}
-                height={480}
-                mirrored
-            />
-
-            <canvas
-                ref={canvasRef}
-                width={640}
-                height={480}
-                style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    pointerEvents: "none",
-                }}
-            />
-                           </div>
-
-                    <div className="flex gap-4 mt-6">
-
-                        <button
-                            onClick={() =>
-                                setIsRunning(true)
-                            }
-                            className="bg-green-600 text-white px-6 py-3 rounded-xl"
-                        >
-                            Start Recognition
-                        </button>
-
-                        <button
-                            onClick={() =>
-                                setIsRunning(false)
-                            }
-                            className="bg-red-600 text-white px-6 py-3 rounded-xl"
-                        >
-                            Stop Recognition
-                        </button>
-                         <button
-    onClick={() => {
+    frameInterval.current = setInterval(() => {
 
         if (
-            socket.current &&
-            socket.current.readyState === 1
+            !socket.current ||
+            socket.current.readyState !== WebSocket.OPEN
         ) {
-
-            socket.current.send(
-                "hello"
-            );
-
-            console.log(
-                "HELLO SENT"
-            );
-
-        } else {
-
-            console.log(
-                "SOCKET NOT OPEN"
-            );
-
+            return;
         }
 
-    }}
-    className="bg-blue-600 text-white px-6 py-3 rounded-xl"
->
-    Test Socket
-</button>
-                    </div>
+        if (
+            !webcamRef.current ||
+            frameInFlight.current
+        ) {
+            return;
+        }
 
+        const image =
+            webcamRef.current.getScreenshot();
+
+        if (!image) return;
+
+        frameInFlight.current = true;
+
+        console.log("FRAME SENT");
+
+        socket.current.send(image);
+
+        setTimeout(() => {
+            frameInFlight.current = false;
+        }, 2000);
+
+    }, 300);
+};
+
+const stopRecognition = () => {
+
+    console.log("STOP CLICKED");
+
+    setIsRunning(false);
+
+    if (frameInterval.current) {
+
+        console.log("CLEARING INTERVAL");
+
+        clearInterval(frameInterval.current);
+
+        frameInterval.current = null;
+    }
+
+    frameInFlight.current = false;
+
+    if (socket.current) {
+
+        console.log("CLOSING WS");
+
+        socket.current.close();
+
+        socket.current = null;
+    }
+
+    setFaces([]);
+};
+    return (
+        <div className="max-w-7xl mx-auto">
+            <div className="mb-8">
+                <h1 className="text-4xl font-bold">
+                    Live Recognition
+                </h1>
+
+                <p className="text-slate-500 mt-2">
+                    Real-time AI face recognition
+                </p>
+            </div>
+
+            <div className="grid lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                        <div
+                            className="relative mx-auto"
+                            style={{
+                                width: FACE_WIDTH,
+                                height: FACE_HEIGHT,
+                            }}
+                        >
+                            <Webcam
+                                ref={webcamRef}
+                                screenshotFormat="image/jpeg"
+                                width={FACE_WIDTH}
+                                height={FACE_HEIGHT}
+                                mirrored
+                            />
+
+                            <canvas
+                                ref={canvasRef}
+                                width={FACE_WIDTH}
+                                height={FACE_HEIGHT}
+                                style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    pointerEvents: "none",
+                                }}
+                            />
+                        </div>
+
+                        <div className="flex gap-4 mt-6">
+                            <button
+                                onClick={
+                                    startRecognition
+                                }
+                                disabled={isRunning}
+                                className="bg-green-600 text-white px-6 py-3 rounded-xl disabled:opacity-50"
+                            >
+                                Start Recognition
+                            </button>
+
+                            <button
+                                onClick={
+                                    stopRecognition
+                                }
+                                disabled={!isRunning}
+                                className="bg-red-600 text-white px-6 py-3 rounded-xl disabled:opacity-50"
+                            >
+                                Stop Recognition
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
+                <div>
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                        <div className="mb-6">
+                            <div
+                                className={`inline-flex px-3 py-1 rounded-full text-sm ${
+                                    isRunning
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-red-100 text-red-700"
+                                }`}
+                            >
+                                {isRunning
+                                    ? "Recognition Running"
+                                    : "Recognition Stopped"}
+                            </div>
+                        </div>
+
+                        <h2 className="text-xl font-semibold mb-4">
+                            Detected Faces
+                        </h2>
+
+                        {faces.length === 0 && (
+                            <div className="text-slate-500">
+                                No faces detected
+                            </div>
+                        )}
+
+                        {faces.map((face) => (
+                            <div
+                                key={face.track_id}
+                                className="border rounded-2xl p-4 mb-4"
+                            >
+                                <div className="flex justify-between">
+                                    <h3 className="font-semibold">
+                                        {face.name ||
+                                            "Unknown"}
+                                    </h3>
+
+                                    <span
+                                        className={
+                                            face.recognized
+                                                ? "text-green-600"
+                                                : "text-red-600"
+                                        }
+                                    >
+                                        {face.recognized
+                                            ? "Recognized"
+                                            : "Unknown"}
+                                    </span>
+                                </div>
+
+                                <p className="text-sm text-slate-500 mt-2">
+                                    Similarity:{" "}
+                                    {typeof face.similarity ===
+                                    "number"
+                                        ? face.similarity.toFixed(
+                                              2
+                                          )
+                                        : "N/A"}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
-            <div>
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-<div className="mb-6">
-
-    <div
-        className={`inline-flex px-3 py-1 rounded-full text-sm ${
-            isRunning
-                ? "bg-green-100 text-green-700"
-                : "bg-red-100 text-red-700"
-        }`}
-    >
-        {
-            isRunning
-                ? "Recognition Running"
-                : "Recognition Stopped"
-        }
-    </div>
-
-</div>
-    <h2 className="text-xl font-semibold mb-4">
-        Detected Faces
-    </h2>
-        {
-    faces.length === 0 && (
-        <div className="text-slate-500">
-            No faces detected
-        </div>
-    )
-}
-{
-    faces.map((face, index) => (
-
-        <div
-            key={index}
-            className="border rounded-2xl p-4 mb-4"
-        >
-
-            <div className="flex justify-between">
-
-                <h3 className="font-semibold">
-                    {face.name}
-                </h3>
-
-                <span
-                    className={
-                        face.recognized
-                            ? "text-green-600"
-                            : "text-red-600"
-                    }
-                >
-                    {
-                        face.recognized
-                            ? "Recognized"
-                            : "Unknown"
-                    }
-                </span>
-
-            </div>
-
-            <p className="text-sm text-slate-500 mt-2">
-                Similarity:
-                {" "}
-                {face.similarity.toFixed(2)}
-            </p>
-
-        </div>
-    ))
-}
-        </div>
-        </div>
-        </div>
         </div>
     );
 }

@@ -13,7 +13,6 @@ app = FastAPI(
 )
 
 app.include_router(ws_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

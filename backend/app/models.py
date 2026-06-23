@@ -56,3 +56,4 @@ class UnknownVisitor(Base):
         Boolean,
         default=False
     )
+    

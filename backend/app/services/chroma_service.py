@@ -1,8 +1,10 @@
 import chromadb
 import numpy as np
 
+from app.config import settings
+
 client = chromadb.PersistentClient(
-    path="chroma_db"
+    path=settings.chroma_path
 )
 
 collection = client.get_or_create_collection(
@@ -34,6 +36,9 @@ def search_embedding(
     embedding
 ):
 
+    if collection.count() == 0:
+        return None, 0
+
     embedding = np.array(
         embedding
     )
@@ -44,20 +49,11 @@ def search_embedding(
             embedding
         )
     )
-    
-    print(
-    collection.count()  
-    )
 
     result = collection.query(
-        query_embeddings=[
-            embedding.tolist()
-        ],
+        query_embeddings=[embedding.tolist()],
         n_results=1
     )
-
-    print("CHROMA QUERY RESULT:")
-    print(result)
 
     if not result["ids"][0]:
         return None, 0
@@ -72,19 +68,12 @@ def search_embedding(
 
     similarity = 1 - distance
 
-    print(
-        f"USER_ID={user_id}"
-    )
-
-    print(
-        f"DISTANCE={distance}"
-    )
-
-    print(
-        f"SIMILARITY={similarity}"
-    )
-
     return (
         user_id,
         similarity
     )
+
+
+def delete_embedding(user_id):
+    """Remove a user's embedding from Chroma (call this on user delete)."""
+    collection.delete(ids=[str(user_id)])

@@ -47,20 +47,38 @@ def detect_faces(image_path: str):
 
     return results
 
-def detect_faces_from_frame(
-    image
-):
+def detect_faces_from_frame(image):
 
-    faces = face_app.get(image)
+    original_h, original_w = image.shape[:2]
+
+    resized = cv2.resize(
+        image,
+        (320, 240),
+        interpolation=cv2.INTER_AREA
+    )
+
+    scale_x = original_w / 320
+    scale_y = original_h / 240
+
+    faces = face_app.get(resized)
 
     results = []
 
     for face in faces:
 
+        bbox = face.bbox.astype(int)
+
+        bbox = [
+            int(bbox[0] * scale_x),
+            int(bbox[1] * scale_y),
+            int(bbox[2] * scale_x),
+            int(bbox[3] * scale_y),
+        ]
+
         results.append(
             {
                 "embedding": face.embedding,
-                "bbox": face.bbox.astype(int).tolist()
+                "bbox": bbox
             }
         )
 

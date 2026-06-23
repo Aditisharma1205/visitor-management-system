@@ -1,7 +1,6 @@
 import os
 import uuid
 import numpy as np
-import shutil
 
 from fastapi import (
     APIRouter,
@@ -16,36 +15,37 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import settings
 from app.models import (
     User,
     VisitorLog,
     UnknownVisitor
 )
-from app.face_service import (
+from app.services.face_service import (
     get_embedding,
     detect_faces
 )
 from app.utils import save_uploaded_file
 
-from app.chroma_service import (
+from app.services.chroma_service import (
     add_embedding,
-    search_embedding
+    search_embedding,
+    delete_embedding
 )
-from app.tracker import assign_track
 from app.recognition_cache import (
     get_cached_identity,
     cache_identity
 )
 
-from app.cluster_service import (
+from app.services.cluster_service import (
     add_to_cluster,
     get_cluster,
     clear_cluster
 )
-from app.aggregation_service import (
+from app.services.aggregation_service import (
     aggregate_embeddings
 )
-from app.unknown_service import (
+from app.services.unknown_service import (
     save_unknown_face
 )
 router = APIRouter()
@@ -106,229 +106,15 @@ def register_user(
     db.refresh(user)
 
     add_embedding(
-    embedding,
-    user.id,
-    user.name
-)
-    print(
-    "REGISTER EMBEDDING NORM:",
-    np.linalg.norm(embedding)
-)
+        embedding,
+        user.id,
+        user.name
+    )
 
     return {
         "message": "User registered successfully",
         "user_id": user.id,
         "name": user.name
-    }
-
-
-@router.post("/recognize")
-def recognize_user(
-    photo: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-
-    temp_photo_path = save_uploaded_file(
-        photo,
-        "uploads/temp"
-    )
-
-    try:
-        faces = detect_faces(
-            temp_photo_path
-        )
-
-    except ValueError as e:
-
-        if os.path.exists(temp_photo_path):
-            os.remove(temp_photo_path)
-
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
-
-    results = []
-
-    for face in faces:
-
-        embedding = face["embedding"]
-
-        track_id = assign_track(
-    embedding,
-    face["bbox"]
-)
-
-        print(
-    f"TRACK ID: {track_id}"
-)
-        cached_result = (
-            get_cached_identity(
-                track_id
-            )
-        )
-
-        if cached_result:
-
-            print(
-                f"CACHE HIT TRACK {track_id}"
-            )
-
-            results.append(
-                cached_result
-            )
-
-            continue
-
-        add_to_cluster(
-            track_id,
-            embedding
-        )
-
-        cluster_embeddings = get_cluster(
-            track_id
-        )
-        print(
-    f"CLUSTER SIZE: {len(cluster_embeddings)}"
-)
-        if len(cluster_embeddings) < 5:
-
-            results.append({
-                "recognized": False,
-                "name": f"Collecting {len(cluster_embeddings)}/5",
-                "similarity": 0.0,
-                "bbox": face["bbox"]
-            })
-
-            print(
-            f"TRACK {track_id} "
-            f"COLLECTING "
-            f"{len(cluster_embeddings)}/5"
-        )
-
-            continue
-
-        aggregated_embedding = (
-            aggregate_embeddings(
-                cluster_embeddings
-            )
-        )
-        print(
-    "AGGREGATED EMBEDDING CREATED"
-)       
-        print(
-    "LIVE EMBEDDING NORM:",
-    np.linalg.norm(aggregated_embedding)
-)
-
-        user_id, similarity = (
-            search_embedding(
-                aggregated_embedding
-            )
-        )
-        print(
-            f"CHROMA RESULT -> user_id={user_id}, similarity={similarity}"
-        )
-        if (
-            user_id is None
-            or similarity < 0.5
-        ):
-            existing_unknown = (
-                db.query(UnknownVisitor)
-                .filter(
-                    UnknownVisitor.track_id == track_id
-                )
-                .first()
-            )
-
-            if existing_unknown:
-                unknown_result = {
-                    "recognized": False,
-                    "name": "Unknown",
-                    "similarity": float(similarity),
-                    "bbox": face["bbox"]
-                }
-
-                results.append(
-                    unknown_result
-                )
-
-                continue
-
-            unknown_image = (
-                save_unknown_face(
-                    temp_photo_path,
-                    face["bbox"]
-                )
-            )
-
-            unknown = UnknownVisitor(
-                image_path=unknown_image
-            )
-
-            db.add(
-                unknown
-            )
-
-            db.commit()
-
-            unknown_result = {
-                "recognized": False,
-                "name": "Unknown",
-                "similarity": float(similarity),
-                "bbox": face["bbox"]
-            }
-
-            cache_identity(
-                track_id,
-                unknown_result
-            )
-
-            results.append(
-                unknown_result
-            )
-            continue
-
-        matched_user = (
-            db.query(User)
-            .filter(User.id == user_id)
-            .first()
-        )
-        
-        print("DEBUG: matched_user =", matched_user)
-
-        if matched_user is None:
-            results.append({
-                "recognized": False,
-                "name": "Unknown",
-                "similarity": float(similarity),
-                "bbox": face["bbox"]
-            })
-
-            continue
-
-        recognized_result = {
-        "recognized": True,
-        "name": matched_user.name,
-        "user_id": matched_user.id,
-        "similarity": float(similarity),
-        "bbox": face["bbox"]
-    }
-        cache_identity(
-        track_id,
-        recognized_result
-    )
-        clear_cluster(track_id)
-
-        results.append(
-        recognized_result
-    )
-
-    if os.path.exists(temp_photo_path):
-            os.remove(temp_photo_path)
-
-    return {
-        "faces": results
     }
 
 @router.post("/visitor/check-in")
@@ -346,7 +132,6 @@ def visitor_check_in(
         faces = detect_faces(
             temp_photo_path
         )
-        print("Detected Faces:", len(faces))
 
     except ValueError as e:
 
@@ -367,18 +152,19 @@ def visitor_check_in(
         user_id, similarity = search_embedding(
             embedding
         )
-        print(
-        f"FAISS -> user_id={user_id}, similarity={similarity}"
-        )
-        print("=" * 50)
-        
+
         if (
             user_id is None
-            or similarity < 0.5
+            or similarity < settings.threshold
         ):
 
+            unknown_image_path = save_unknown_face(
+                temp_photo_path,
+                face["bbox"]
+            )
+
             unknown = UnknownVisitor(
-                image_path=temp_photo_path
+                image_path=unknown_image_path
             )
 
             db.add(unknown)
@@ -398,8 +184,6 @@ def visitor_check_in(
             .filter(User.id == user_id)
             .first()
         )
-        
-        print("Matched User:", matched_user)
 
         if matched_user is None:
             continue
@@ -438,12 +222,10 @@ def visitor_check_in(
             "similarity": float(similarity),
             "status": "CHECKED_IN"
         })
-        if os.path.exists(
-    temp_photo_path
-    ):
-            os.remove(
-        temp_photo_path
-    )
+
+    if os.path.exists(temp_photo_path):
+        os.remove(temp_photo_path)
+
     return {
         "visitors": results
     }
@@ -486,7 +268,7 @@ def visitor_check_out(
 
         if (
             user_id is None
-            or similarity < 0.5
+            or similarity < settings.threshold
         ):
 
             results.append({
@@ -605,7 +387,7 @@ def delete_user(
 
     db.commit()
 
-    rebuild_faiss(db)
+    delete_embedding(user_id)
 
     return {
         "message": (
@@ -617,7 +399,7 @@ def delete_user(
 @router.get("/debug/chroma")
 def debug_chroma():
 
-    from app.chroma_service import collection
+    from backend.app.services.chroma_service import collection
 
     return collection.get()
 
