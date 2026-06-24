@@ -14,19 +14,33 @@ function Recognize() {
 
     const [isRunning, setIsRunning] = useState(false);
     const [faces, setFaces] = useState([]);
-
+    
     const drawBoxes = (faceList) => {
         const canvas = canvasRef.current;
-
+        
         if (!canvas) return;
 
         const ctx = canvas.getContext("2d");
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // ENTRY/EXIT LINE
+        ctx.beginPath();
+        ctx.moveTo(
+            0,
+            240
+        );
 
+        ctx.lineTo(
+            canvas.width,
+            240
+        );
+
+        ctx.strokeStyle = "yellow";
+        ctx.lineWidth = 3;
+        ctx.stroke();
         faceList.forEach((face) => {
             if (!face.bbox) return;
-
+            
             const [x1, y1, x2, y2] = face.bbox;
 
             const color = face.recognized ? "green" : "red";
@@ -40,6 +54,7 @@ function Recognize() {
                 x2 - x1,
                 y2 - y1
             );
+            
 
             ctx.fillStyle = color;
             ctx.font = "18px Arial";

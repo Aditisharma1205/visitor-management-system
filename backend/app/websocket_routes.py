@@ -29,6 +29,20 @@ from app.models import User
 from app.database import SessionLocal
 from starlette.websockets import WebSocketState
 from app.tracker import tracks
+from app.tracker import tracks
+from app.service.zone_service import get_zone
+from app.service.movement_service import detect_event
+
+from app.services.visitor_log_service import (
+    create_entry,
+    create_exit
+)
+from app.reid_memory import (
+    save_identity,
+    search_memory
+)
+
+
 router = APIRouter()
 
 
@@ -105,8 +119,34 @@ async def websocket_endpoint(
                     embedding,
                     face["bbox"]
                 )
-
                 seen_track_ids.append(track_id)
+                track = tracks[track_id]
+
+                zone = get_zone(face["bbox"])
+
+                event = detect_event(
+                    track,
+                    zone
+                )
+                if event == "ENTRY":
+
+                    create_entry(
+                        db,
+                        matched_user.id
+                    )
+
+                elif event == "EXIT":
+
+                    create_exit(
+                        db,
+                        matched_user.id
+                    )
+
+                print(
+                    f"TRACK={track_id} "
+                    f"ZONE={zone} "
+                    f"EVENT={event}"
+)
 
                 add_to_cluster(
                     track_id,
@@ -133,7 +173,6 @@ async def websocket_endpoint(
                 cached = get_cached_identity(track_id)
 
                 if cached:
-
                     await websocket.send_json(
                         {
                             "type": "tracking",
@@ -157,6 +196,48 @@ async def websocket_endpoint(
                 user_id, similarity = search_embedding(
                     aggregated_embedding
                 )
+                memory_user,memory_similarity = search_memory(
+                    aggregated_embedding
+                )
+
+                if memory_similarity > 0.65:
+
+                    matched_user = (
+                        db.query(User)
+                        .filter(
+                            User.id == memory_user
+                        )
+                        .first()
+                    )
+
+                    if matched_user:
+
+                        print(
+                            f"RE-IDENTIFIED "
+                            f"{matched_user.name}"
+                        )
+
+                        cache_identity(
+                            track_id,
+                            {
+                                "user_id": matched_user.id,
+                                "name": matched_user.name,
+                                "similarity": memory_similarity
+                            }
+                        )
+
+                    await websocket.send_json(
+                        {
+                            "recognized": True,
+                            "track_id": track_id,
+                            "name": matched_user.name,
+                            "user_id": matched_user.id,
+                            "similarity": memory_similarity,
+                            "bbox": face["bbox"]
+                        }
+                    )
+
+                    continue
 
                 if user_id is None or similarity < settings.threshold:
 
@@ -180,7 +261,12 @@ async def websocket_endpoint(
 
                 if matched_user is None:
                     continue
+                
+                
 
+                print(
+                    f"TRACK={track_id} EVENT={event}"
+                )
                 cache_identity(
                     track_id,
                     {
@@ -190,11 +276,20 @@ async def websocket_endpoint(
                     }
                 )
                 print(
-    f"SENDING -> "
-    f"TRACK={track_id} "
-    f"NAME={matched_user.name if 'matched_user' in locals() and matched_user else 'Unknown'} "
-    f"BBOX={face['bbox']}"
-)
+                    f"TRACK={track_id} "
+                    f"EVENT={event}"
+                )
+                print(
+                    f"SENDING -> "
+                    f"TRACK={track_id} "
+                    f"NAME={matched_user.name if 'matched_user' in locals() and matched_user else 'Unknown'} "
+                    f"BBOX={face['bbox']}"
+                )
+                save_identity(
+                    matched_user.id,
+                    matched_user.name,
+                    aggregated_embedding
+                )
                 await websocket.send_json(
                     {
                         "recognized": True,
@@ -207,7 +302,7 @@ async def websocket_endpoint(
                 )
 
             t_done = time.time()
-
+            
             # Tell the frontend which tracks are still actually visible in
             # this frame, so it can drop boxes for faces that left the frame
             # instead of leaving stale boxes/cards on screen.
@@ -232,6 +327,5 @@ async def websocket_endpoint(
 
     finally:
 
-    tracks.clear()
-
-    db.close()
+        tracks.clear()
+        db.close()

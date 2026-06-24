@@ -8,8 +8,9 @@ from sqlalchemy import (
 )
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from app.database import Base
-
+IST = ZoneInfo("Asia/Kolkata")
 # existing User model remains unchanged
 
 class User(Base):
@@ -18,13 +19,13 @@ class User(Base):
     name = Column(String(255), nullable=False)
     photo_path = Column(String(500), nullable=False)
     embedding_path = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(IST))
 
 class VisitorLog(Base):
     __tablename__ = "visitor_logs"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    entry_time = Column(DateTime, default=datetime.utcnow)
+    entry_time = Column(DateTime, default=datetime.now(IST))
     exit_time = Column(DateTime, nullable=True)
     status = Column(
     String(50),

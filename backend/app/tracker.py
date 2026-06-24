@@ -134,7 +134,7 @@ def assign_track(
             track["embeddings"],
             axis=0
         )
-
+        track["previous_center"] = track["center"]
         track["last_seen"] = time.time()
         track["center"] = center
         track["size"] = face_size
@@ -150,11 +150,18 @@ def assign_track(
     next_track_id += 1
 
     tracks[track_id] = {
-        "embeddings": [embedding],
-        "mean_embedding": embedding,
-        "center": center,
-        "size": face_size,
-        "last_seen": time.time()
-    }
+    "embeddings": [embedding],
+    "mean_embedding": embedding,
+    "center": center,
+    "size": face_size,
+    "last_seen": time.time(),
+
+    "previous_zone": None,
+    "current_zone": None
+}
     print(f"NEW TRACK {track_id}")
     return track_id
+
+def get_track(track_id):
+
+    return tracks.get(track_id)
