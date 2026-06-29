@@ -11,6 +11,8 @@ import {
     UserCheck,
     ClipboardList,
     AlertTriangle,
+    LogIn,
+    LogOut,
 } from "lucide-react";
 
 function Dashboard() {
@@ -20,6 +22,8 @@ function Dashboard() {
         total_visits: 0,
         unknown_visitors: 0,
         registered_users: 0,
+        todays_entries: 0,
+        todays_exits: 0,
     });
     const sectionClass =
     "bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mt-8";
@@ -55,21 +59,21 @@ function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mt-8">
 
                 <StatsCard
-                    title="Visitors Inside"
+                    title="Active Visitors Inside"
                     value={stats.current_visitors}
                     icon={UserCheck}
                 />
 
                 <StatsCard
-                    title="Registered Users"
-                    value={stats.registered_users}
-                    icon={Users}
+                    title="Today's Entries"
+                    value={stats.todays_entries || 0}
+                    icon={LogIn}
                 />
 
                 <StatsCard
-                    title="Total Visits"
-                    value={stats.total_visits}
-                    icon={ClipboardList}
+                    title="Today's Exits"
+                    value={stats.todays_exits || 0}
+                    icon={LogOut}
                 />
 
                 <StatsCard

@@ -26,6 +26,7 @@ function VisitorHistoryTable() {
                         <th className="text-left p-3">Name</th>
                         <th className="text-left p-3">Entry Time</th>
                         <th className="text-left p-3">Exit Time</th>
+                        <th className="text-left p-3">Duration</th>
                         <th className="text-left p-3">Status</th>
                     </tr>
                 </thead>
@@ -33,7 +34,7 @@ function VisitorHistoryTable() {
                 <tbody>
                     {history.length === 0 ? (
                         <tr className="border-b hover:bg-gray-50">
-                            <td className="p-3" colSpan="4">
+                            <td className="p-3" colSpan="5">
                                 No visitor history available
                             </td>
                         </tr>
@@ -55,6 +56,8 @@ function VisitorHistoryTable() {
                                           ).toLocaleString()
                                         : "-"}
                                 </td>
+
+                                <td className="p-3">{record.duration || "-"}</td>
 
                                 <td className="p-3">{record.status}</td>
                             </tr>

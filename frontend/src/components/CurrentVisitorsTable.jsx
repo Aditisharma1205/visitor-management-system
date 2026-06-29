@@ -29,13 +29,14 @@ function CurrentVisitorsTable() {
                     <tr className="border-b hover:bg-gray-50">
                         <th className="text-left p-3">Name</th>
                         <th className="text-left p-3">Entry Time</th>
+                        <th className="text-left p-3">Duration Inside</th>
                     </tr>
                 </thead>
 
                 <tbody>
                     {visitors.length === 0 ? (
                         <tr className="border-b hover:bg-gray-50">
-                            <td className="p-3" colSpan="2">
+                            <td className="p-3" colSpan="3">
                                 No visitors inside
                             </td>
                         </tr>
@@ -50,6 +51,10 @@ function CurrentVisitorsTable() {
                                     {new Date(
                                         visitor.entry_time
                                     ).toLocaleString()}
+                                </td>
+                                
+                                <td className="p-3">
+                                    {visitor.duration || "-"}
                                 </td>
                             </tr>
                         ))

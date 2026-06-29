@@ -18,19 +18,23 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     photo_path = Column(String(500), nullable=False)
-    embedding_path = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.now(IST))
-
+    
 class VisitorLog(Base):
     __tablename__ = "visitor_logs"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    entry_time = Column(DateTime, default=datetime.now(IST))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    unknown_visitor_id = Column(Integer, ForeignKey("unknown_visitors.id"), nullable=True)
+    entry_time = Column(
+    DateTime,
+    default=lambda: datetime.now(IST)
+)
     exit_time = Column(DateTime, nullable=True)
     status = Column(
-    String(50),
-    default="INSIDE"
-)
+        String(50),
+        default="INSIDE"
+    )
+    entry_snapshot = Column(String(500), nullable=True)
+    exit_snapshot = Column(String(500), nullable=True)
 
 
 class UnknownVisitor(Base):
@@ -44,17 +48,33 @@ class UnknownVisitor(Base):
     )
 
     image_path = Column(
-    String(500),
-    nullable=False
-)
-
+        String(500),
+        nullable=False
+    )
     detected_at = Column(
         DateTime,
-        default=datetime.utcnow
+        default=lambda: datetime.now(IST)
     )
+    
+    last_seen = Column(
+    DateTime,
+    default=lambda: datetime.now(IST)
+)
 
     reviewed = Column(
         Boolean,
         default=False
     )
+
+
+class UserFaceSample(Base):
+    __tablename__ = "user_face_samples"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    photo_path = Column(String(500), nullable=False)
+    embedding_path = Column(String(500), nullable=False)
+    created_at = Column(
+    DateTime,
+    default=lambda: datetime.now(IST)
+)
     

@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Register from "./pages/Register";
 import Recognize from "./pages/Recognize";
 import Users from "./pages/Users";
+import Search from "./pages/Search";
 
 import Layout from "./components/Layout";
 
@@ -57,6 +58,15 @@ function App() {
                 element={
                     <Layout>
                         <Users />
+                    </Layout>
+                }
+            />
+
+            <Route
+                path="/search"
+                element={
+                    <Layout>
+                        <Search />
                     </Layout>
                 }
             />

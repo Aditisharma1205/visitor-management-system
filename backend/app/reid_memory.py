@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-MEMORY_TIMEOUT = 60
+MEMORY_TIMEOUT = 600
 
 memory = {}
 

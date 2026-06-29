@@ -4,6 +4,7 @@ import {
   ScanFace,
   Users,
   Shield,
+  Search,
 } from "lucide-react";
 
 import { NavLink } from "react-router-dom";
@@ -29,6 +30,11 @@ export default function Sidebar() {
       name: "Users",
       icon: Users,
       path: "/users",
+    },
+    {
+      name: "Search",
+      icon: Search,
+      path: "/search",
     },
   ];
 

@@ -47,6 +47,26 @@ def bbox_diagonal(bbox):
     ) ** 0.5
 
 
+def intersection_over_union(boxA, boxB):
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    interWidth = max(0, xB - xA)
+    interHeight = max(0, yB - yA)
+    interArea = interWidth * interHeight
+
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+    unionArea = float(boxAArea + boxBArea - interArea)
+    if unionArea == 0:
+        return 0.0
+
+    return interArea / unionArea
+
+
 def cleanup_tracks():
 
     current_time = time.time()
@@ -69,12 +89,16 @@ def cleanup_tracks():
 
 def assign_track(
     embedding,
-    bbox
+    bbox,
+    exclude_track_ids=None
 ):
 
     cleanup_tracks()
 
     global next_track_id
+
+    if exclude_track_ids is None:
+        exclude_track_ids = []
 
     x1, y1, x2, y2 = bbox
 
@@ -86,9 +110,12 @@ def assign_track(
     face_size = bbox_diagonal(bbox)
 
     best_track = None
+    best_cost = -1.0
     best_similarity = 0
 
     for track_id, track_data in tracks.items():
+        if track_id in exclude_track_ids:
+            continue
 
         embedding_similarity = cosine_similarity(
             embedding,
@@ -109,14 +136,28 @@ def assign_track(
         else:
             position_gate = reference_size * POSITION_THRESHOLD_FACTOR
 
-        if (
-            embedding_similarity > best_similarity
-            and
-            position_distance < position_gate
-        ):
+        if position_distance < position_gate:
+            track_bbox = track_data.get("bbox")
+            if track_bbox is None:
+                tc = track_data["center"]
+                ts = track_data["size"]
+                w = 0.8 * ts
+                h = 0.6 * ts
+                track_bbox = [tc[0] - w/2, tc[1] - h/2, tc[0] + w/2, tc[1] + h/2]
 
-            best_similarity = embedding_similarity
-            best_track = track_id
+            iou_score = intersection_over_union(bbox, track_bbox)
+            center_distance_score = max(0.0, 1.0 - (position_distance / reference_size))
+
+            cost = (
+                0.6 * embedding_similarity +
+                0.3 * iou_score +
+                0.1 * center_distance_score
+            )
+
+            if cost > best_cost:
+                best_cost = cost
+                best_track = track_id
+                best_similarity = embedding_similarity
 
     if (
         best_track is not None
@@ -138,10 +179,12 @@ def assign_track(
         track["last_seen"] = time.time()
         track["center"] = center
         track["size"] = face_size
+        track["bbox"] = bbox
 
         print(
     f"MATCHED TRACK {best_track} "
-    f"SIM={best_similarity:.3f}"
+    f"SIM={best_similarity:.3f} "
+    f"COST={best_cost:.3f}"
 )
         return best_track
 
@@ -155,9 +198,11 @@ def assign_track(
     "center": center,
     "size": face_size,
     "last_seen": time.time(),
-
     "previous_zone": None,
-    "current_zone": None
+    "current_zone": None,
+    "first_zone": None,
+    "unknown_visitor": None,
+    "bbox": bbox
 }
     print(f"NEW TRACK {track_id}")
     return track_id
