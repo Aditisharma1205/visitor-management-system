@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +19,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -25,6 +29,11 @@ app.add_middleware(
 )
 
 Base.metadata.create_all(bind=engine)
+
+# StaticFiles() raises FileNotFoundError at import time if the directory
+# doesn't exist yet (e.g. a fresh checkout before the first upload/snapshot
+# has been written) - make sure it's there first.
+os.makedirs("uploads", exist_ok=True)
 app.mount(
     "/uploads",
     StaticFiles(directory="uploads"),
@@ -39,4 +48,4 @@ def home():
     return {
         "message": "VisionPass API is running"
     }
-    
+

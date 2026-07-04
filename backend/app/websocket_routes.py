@@ -9,7 +9,7 @@ import numpy as np
 from app.services.face_service import (
     detect_faces_from_frame
 )
-from app.tracker import assign_track
+from app.tracker import assign_track, tracks
 from app.services.cluster_service import (
     add_to_cluster,
     get_cluster
@@ -25,11 +25,9 @@ from app.services.chroma_service import (
     search_embedding
 )
 from app.config import settings
-from app.models import User
+from app.models import User, CameraSession
 from app.database import SessionLocal
 from starlette.websockets import WebSocketState
-from app.tracker import tracks
-from app.tracker import tracks
 from app.services.zone_service import get_zone
 from app.services.movement_service import detect_event
 from app.services.snapshot_service import save_snapshot
@@ -37,6 +35,8 @@ from app.services.visitor_log_service import (
     create_entry,
     create_exit
 )
+from app.services.session_services import start_session, end_session
+from app.live_state import set_live_state, clear_live_state
 from app.reid_memory import (
     save_identity,
     search_memory
@@ -44,10 +44,56 @@ from app.reid_memory import (
 
 from app.services.unknown_visitor_service import create_unknown_visitor
 from app.antispoof.inference import antispoof
+import traceback
 
 
 router = APIRouter()
-def log_visitor_event(db,track,user_id,unknown_id,event,frame,bbox,name):
+
+# Live-ness/spoof tuning. Was hardcoded inline before; pulled to the top so
+# it's easy to tune in one place.
+SPOOF_SCORE_WINDOW = 10
+SPOOF_MIN_SAMPLES = 5
+SPOOF_LIVE_THRESHOLD = 0.7
+
+# How much bigger than the raw face bbox to crop for the anti-spoof model.
+FACE_CROP_SCALE = 2.7
+
+
+def crop_face_for_antispoof(image, bbox):
+    """
+    Crop a padded region around a face bbox for the anti-spoof model.
+
+    This used to be redefined as a closure inside the per-face loop of the
+    websocket handler, meaning a brand new function object got allocated on
+    every single face, every single frame. Hoisted out - same logic, no
+    behavior change, just not re-created on every iteration.
+    """
+
+    x1, y1, x2, y2 = bbox
+
+    w = x2 - x1
+    h = y2 - y1
+
+    cx = x1 + w / 2
+    cy = y1 + h / 2
+
+    nw = w * FACE_CROP_SCALE
+    nh = h * FACE_CROP_SCALE
+
+    x1 = int(cx - nw / 2)
+    y1 = int(cy - nh / 2)
+    x2 = int(cx + nw / 2)
+    y2 = int(cy + nh / 2)
+
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(image.shape[1], x2)
+    y2 = min(image.shape[0], y2)
+
+    return image[y1:y2, x1:x2]
+
+
+def log_visitor_event(db, track, user_id, unknown_id, event, frame, bbox, name, session_id=None):
     if (
         event == "ENTRY"
         and not track.get("entry_logged")
@@ -64,7 +110,8 @@ def log_visitor_event(db,track,user_id,unknown_id,event,frame,bbox,name):
             db,
             user_id=user_id,
             unknown_visitor_id=unknown_id,
-            snapshot_path=snapshot_path
+            snapshot_path=snapshot_path,
+            session_id=session_id
         )
 
         track["entry_logged"] = True
@@ -100,13 +147,32 @@ async def websocket_endpoint(
     db = SessionLocal()
     print("WS CONNECTED")
 
+    # This app only ever runs one active camera feed at a time (the global
+    # `tracks` dict below is shared, single-connection state), so a /ws
+    # connection maps 1:1 to a CameraSession. If a session was left ACTIVE
+    # from a previous connection that didn't clean up (e.g. a server
+    # restart), close it out first so /session/active doesn't point at a
+    # dead session forever.
+    stale_session = (
+        db.query(CameraSession)
+        .filter(CameraSession.status == "ACTIVE")
+        .first()
+    )
+    if stale_session:
+        end_session(db, stale_session.id)
+        clear_live_state(stale_session.id)
+
+    session = start_session(db)
+    session_id = session.id
+    print(f"SESSION STARTED id={session_id}")
+
     try:
 
         while True:
 
-
             frame = await websocket.receive_text()
             t_start = time.time()
+            print(f"Frame received: {len(frame)} bytes")
 
             header, encoded = frame.split(
                 ",",
@@ -155,6 +221,7 @@ async def websocket_endpoint(
             t_detected = time.time()
 
             seen_track_ids = []
+            frame_active_tracks = []
 
             for face in faces:
                 bbox = face["bbox"]
@@ -168,33 +235,6 @@ async def websocket_endpoint(
                 x2 = min(width, x2)
                 y2 = min(height, y2)
 
-                def crop_face_27(image, bbox):
-
-                    x1, y1, x2, y2 = bbox
-
-                    w = x2 - x1
-                    h = y2 - y1
-
-                    cx = x1 + w / 2
-                    cy = y1 + h / 2
-
-                    scale = 2.7
-
-                    nw = w * scale
-                    nh = h * scale
-
-                    x1 = int(cx - nw / 2)
-                    y1 = int(cy - nh / 2)
-                    x2 = int(cx + nw / 2)
-                    y2 = int(cy + nh / 2)
-
-                    x1 = max(0, x1)
-                    y1 = max(0, y1)
-                    x2 = min(image.shape[1], x2)
-                    y2 = min(image.shape[0], y2)
-
-                    return image[y1:y2, x1:x2]
-                
                 embedding = face["embedding"]
 
                 track_id = assign_track(
@@ -205,23 +245,38 @@ async def websocket_endpoint(
                 seen_track_ids.append(track_id)
                 track = tracks[track_id]
 
-                crop = crop_face_27(image, bbox)
-                anti = antispoof.predict(crop)
+                crop = crop_face_for_antispoof(image, bbox)
+                if crop is not None and crop.size > 0:
+                    anti = antispoof.predict(crop)
 
-                if "live_scores" not in track:
-                    track["live_scores"] = []
-                track["live_scores"].append(anti["live_score"])
-                if len(track["live_scores"]) > 10:
-                    track["live_scores"].pop(0)
+                    if "live_scores" not in track:
+                        track["live_scores"] = []
+                    track["live_scores"].append(anti["live_score"])
+                    if len(track["live_scores"]) > SPOOF_SCORE_WINDOW:
+                        track["live_scores"].pop(0)
 
-                is_spoof = False
-                if len(track["live_scores"]) >= 5:
-                    avg = sum(track["live_scores"]) / len(track["live_scores"])
-                    if avg < 0.7:
-                        track["is_spoof"] = True
-                        is_spoof = True
+                    # Was sticky forever: once flagged, is_spoof could never go
+                    # back to False for the life of the track, even if the
+                    # rolling average recovered above the threshold on a later
+                    # frame (e.g. someone briefly tilting away from camera).
+                    # Now it's recomputed from the current rolling window every
+                    # time we have enough samples, so it can clear again.
+                    if len(track["live_scores"]) >= SPOOF_MIN_SAMPLES:
+                        avg = sum(track["live_scores"]) / len(track["live_scores"])
+                        is_spoof = avg < SPOOF_LIVE_THRESHOLD
+                        track["is_spoof"] = is_spoof
+                    else:
+                        is_spoof = track.get("is_spoof", False)
                 else:
+                    print(f"WARNING: Empty face crop for track {track_id} at bbox {bbox}. Skipping antispoof prediction.")
                     is_spoof = track.get("is_spoof", False)
+                    anti = {
+                        "is_live": not is_spoof,
+                        "live_score": 1.0 if not is_spoof else 0.0,
+                        "spoof_score": 0.0 if not is_spoof else 1.0,
+                        "print_score": 0.0,
+                        "replay_score": 0.0
+                    }
 
                 if is_spoof:
                     await websocket.send_json(
@@ -277,18 +332,19 @@ async def websocket_endpoint(
                             )
                             # Refresh re-id memory with current embedding
                             save_identity(matched_user.id, matched_user.name, embedding)
-                            
+
                             # Log visitor event if needed
                             log_visitor_event(
-                            db,
-                            track,
-                            matched_user.id,
-                            None,
-                            event,
-                            image,
-                            bbox,
-                            matched_user.name
-                        )
+                                db,
+                                track,
+                                matched_user.id,
+                                None,
+                                event,
+                                image,
+                                bbox,
+                                matched_user.name,
+                                session_id
+                            )
 
                             await websocket.send_json(
                                 {
@@ -302,20 +358,39 @@ async def websocket_endpoint(
                                     "live_score": anti["live_score"]
                                 }
                             )
+                            frame_active_tracks.append({
+                                "track_id": track_id,
+                                "name": matched_user.name,
+                                "recognized": True,
+                                "bbox": bbox
+                            })
                             continue
+
+                        # memory_similarity was high but no matching user
+                        # row exists (stale/unknown-visitor memory entry) -
+                        # previously fell through with no send_json at all,
+                        # so the frontend got no bbox for this face this
+                        # frame. Fall through to the provisional "unknown"
+                        # send below instead of silently dropping it.
 
                     # Send a provisional "unknown" so the box still renders
                     # while we build confidence, instead of leaving it blank.
                     await websocket.send_json(
-                    {
-                        "recognized": False,
+                        {
+                            "recognized": False,
+                            "track_id": track_id,
+                            "name": "Unknown",
+                            "bbox": bbox,
+                            "spoof": False,
+                            "live_score": anti["live_score"]
+                        }
+                    )
+                    frame_active_tracks.append({
                         "track_id": track_id,
                         "name": "Unknown",
-                        "bbox": bbox,
-                        "spoof": False,
-                        "live_score": anti["live_score"]
-                    }
-                    )
+                        "recognized": False,
+                        "bbox": bbox
+                    })
                     continue
 
                 cached = get_cached_identity(track_id)
@@ -323,7 +398,7 @@ async def websocket_endpoint(
                 if cached:
                     # Refresh re-id memory with the active frame embedding
                     save_identity(cached["user_id"], cached["name"], embedding)
-                    
+
                     log_visitor_event(
                         db,
                         track,
@@ -332,7 +407,8 @@ async def websocket_endpoint(
                         event,
                         image,
                         bbox,
-                        cached["name"]
+                        cached["name"],
+                        session_id
                     )
                     await websocket.send_json(
                         {
@@ -347,9 +423,13 @@ async def websocket_endpoint(
                             "live_score": anti["live_score"]
                         }
                     )
-
+                    frame_active_tracks.append({
+                        "track_id": track_id,
+                        "name": cached["name"],
+                        "recognized": True,
+                        "bbox": bbox
+                    })
                     continue
-
 
                 aggregated_embedding = aggregate_embeddings(cluster)
 
@@ -359,7 +439,7 @@ async def websocket_endpoint(
                 user_id, similarity = search_embedding(
                     aggregated_embedding
                 )
-                memory_user,memory_similarity = search_memory(
+                memory_user, memory_similarity = search_memory(
                     aggregated_embedding
                 )
 
@@ -397,23 +477,29 @@ async def websocket_endpoint(
                             event,
                             image,
                             bbox,
-                            matched_user.name
+                            matched_user.name,
+                            session_id
                         )
 
-                    await websocket.send_json(
-                        {
-                            "recognized": True,
+                        await websocket.send_json(
+                            {
+                                "recognized": True,
+                                "track_id": track_id,
+                                "name": matched_user.name,
+                                "user_id": matched_user.id,
+                                "similarity": memory_similarity,
+                                "bbox": bbox,
+                                "spoof": False,
+                                "live_score": anti["live_score"]
+                            }
+                        )
+                        frame_active_tracks.append({
                             "track_id": track_id,
                             "name": matched_user.name,
-                            "user_id": matched_user.id,
-                            "similarity": memory_similarity,
-                            "bbox": bbox,
-                            "spoof": False,
-                            "live_score": anti["live_score"]
-                        }
-                    )
-
-                    continue
+                            "recognized": True,
+                            "bbox": bbox
+                        })
+                        continue
 
                 if user_id is None or similarity < settings.threshold:
 
@@ -450,7 +536,8 @@ async def websocket_endpoint(
                         event,
                         image,
                         bbox,
-                        unknown.name
+                        unknown.name,
+                        session_id
                     )
 
                     await websocket.send_json(
@@ -466,7 +553,12 @@ async def websocket_endpoint(
                             "live_score": anti["live_score"]
                         }
                     )
-
+                    frame_active_tracks.append({
+                        "track_id": track_id,
+                        "name": unknown.name,
+                        "recognized": False,
+                        "bbox": bbox
+                    })
                     continue
 
                 matched_user = (
@@ -477,7 +569,7 @@ async def websocket_endpoint(
 
                 if matched_user is None:
                     continue
-                
+
                 log_visitor_event(
                     db,
                     track,
@@ -486,7 +578,8 @@ async def websocket_endpoint(
                     event,
                     image,
                     bbox,
-                    matched_user.name
+                    matched_user.name,
+                    session_id
                 )
 
                 print(
@@ -500,20 +593,16 @@ async def websocket_endpoint(
                         "similarity": float(similarity)
                     }
                 )
-                print(
-                    f"TRACK={track_id} "
-                    f"EVENT={event}"
-                )
-                print(
-                    f"SENDING -> "
-                    f"TRACK={track_id} "
-                    f"NAME={matched_user.name if 'matched_user' in locals() and matched_user else 'Unknown'} "
-                    f"BBOX={face['bbox']}"
-                )
                 save_identity(
                     matched_user.id,
                     matched_user.name,
                     aggregated_embedding
+                )
+                print(
+                    f"SENDING -> "
+                    f"TRACK={track_id} "
+                    f"NAME={matched_user.name} "
+                    f"BBOX={face['bbox']}"
                 )
                 await websocket.send_json(
                     {
@@ -527,9 +616,54 @@ async def websocket_endpoint(
                         "live_score": anti["live_score"]
                     }
                 )
+                frame_active_tracks.append({
+                    "track_id": track_id,
+                    "name": matched_user.name,
+                    "recognized": True,
+                    "bbox": bbox
+                })
+            # Draw recognition boxes
+            for track in frame_active_tracks:
+
+                if "bbox" not in track:
+                    continue
+
+                x1, y1, x2, y2 = map(int, track["bbox"])
+
+                if track["recognized"]:
+                    color = (0,255,0)
+                else:
+                    color = (0,0,255)
+
+                cv2.rectangle(
+                    image,
+                    (x1,y1),
+                    (x2,y2),
+                    color,
+                    2
+                )
+
+                label = f'{track["name"]} ({track["track_id"]})'
+
+                cv2.putText(
+                    image,
+                    label,
+                    (x1,max(25,y1-10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    color,
+                    2
+                )
+
+            _, buffer = cv2.imencode(".jpg", image)
+
+            processed_frame = base64.b64encode(buffer).decode()
+
+
+            set_live_state(session_id, encoded, frame_active_tracks)
 
             t_done = time.time()
-            
+
             # Tell the frontend which tracks are still actually visible in
             # this frame, so it can drop boxes for faces that left the frame
             # instead of leaving stale boxes/cards on screen.
@@ -549,10 +683,25 @@ async def websocket_endpoint(
             )
 
     except WebSocketDisconnect:
-
         print("WS DISCONNECTED")
+
+    except Exception as e:
+        print("=" * 80)
+        print("WEBSOCKET CRASH")
+        traceback.print_exc()
+        print("=" * 80)
 
     finally:
 
+        # NOTE (unchanged behavior, flagging for visibility): tracks is a
+        # single module-level dict shared by every websocket connection.
+        # If more than one camera/client can connect at once, this line
+        # wipes tracking state for ALL of them the moment any one client
+        # disconnects, and track IDs/embeddings can cross-contaminate
+        # between connections while they're both open. Left as-is since
+        # this is an architecture decision (per-connection tracker state)
+        # rather than a bug fix - say the word if you want that reworked.
+        end_session(db, session_id)
+        clear_live_state()
         tracks.clear()
         db.close()

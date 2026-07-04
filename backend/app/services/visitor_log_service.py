@@ -6,7 +6,8 @@ def create_entry(
     db,
     user_id=None,
     unknown_visitor_id=None,
-    snapshot_path=None
+    snapshot_path=None,
+    session_id=None
 ):
 
     # Registered visitor
@@ -38,6 +39,7 @@ def create_entry(
         return existing
 
     log = VisitorLog(
+        session_id=session_id,
         user_id=user_id,
         unknown_visitor_id=unknown_visitor_id,
         entry_time=datetime.now(),

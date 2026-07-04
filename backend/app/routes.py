@@ -1,5 +1,7 @@
 import os
 import uuid
+# pyrefly: ignore [missing-import]
+import cv2
 import numpy as np
 
 from fastapi import (
@@ -11,17 +13,18 @@ from fastapi import (
     Depends
 )
 from sqlalchemy import func
-from datetime import datetime
-from zoneinfo import ZoneInfo
-IST = ZoneInfo("Asia/Kolkata")
+from datetime import datetime, date
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.config import settings
+from app.utils.time_utils import now_ist
 from app.models import (
     User,
     VisitorLog,
-    UnknownVisitor
+    UnknownVisitor,
+    UserFaceSample,
+    CameraSession
 )
 
 from app.services.face_service import (
@@ -33,7 +36,8 @@ from app.utils.utils import save_uploaded_file
 from app.services.chroma_service import (
     add_embedding,
     search_embedding,
-    delete_embedding
+    delete_embedding,
+    collection as chroma_collection
 )
 from app.recognition_cache import (
     get_cached_identity,
@@ -48,9 +52,11 @@ from app.services.cluster_service import (
 from app.services.aggregation_service import (
     aggregate_embeddings
 )
-from app.services.unknown_service import (
+from app.services.snapshot_service import save_snapshot
+from app.services.unknown_visitor_service import (
     create_unknown_visitor
 )
+
 router = APIRouter()
 
 
@@ -98,16 +104,27 @@ def register_user(
         embedding
     )
 
+    # Create the user
     user = User(
         name=name,
-        photo_path=photo_path,
-        embedding_path=embedding_path
+        photo_path=photo_path
     )
 
     db.add(user)
     db.commit()
     db.refresh(user)
 
+    # Save face sample
+    sample = UserFaceSample(
+        user_id=user.id,
+        photo_path=photo_path,
+        embedding_path=embedding_path
+    )
+
+    db.add(sample)
+    db.commit()
+
+    # Add embedding to ChromaDB
     add_embedding(
         embedding,
         user.id,
@@ -119,6 +136,7 @@ def register_user(
         "user_id": user.id,
         "name": user.name
     }
+
 
 @router.post("/visitor/check-in")
 def visitor_check_in(
@@ -148,6 +166,10 @@ def visitor_check_in(
 
     results = []
 
+    # Needed to crop+save unknown faces below. detect_faces() already reads
+    # this file internally, but doesn't hand the decoded frame back to us.
+    frame = cv2.imread(temp_photo_path)
+
     for face in faces:
 
         embedding = face["embedding"]
@@ -161,23 +183,30 @@ def visitor_check_in(
             or similarity < settings.threshold
         ):
 
-            unknown_image_path = save_unknown_face(
-                temp_photo_path,
-                face["bbox"]
+            # Previously called save_unknown_face(), which was never
+            # defined/imported anywhere - this crashed with a NameError
+            # on every check-in where a face wasn't recognized. Now reuses
+            # the same snapshot + unknown-visitor plumbing the websocket
+            # flow already relies on.
+            snapshot_path = save_snapshot(
+                frame,
+                face["bbox"],
+                "unknown",
+                "checkin"
             )
 
-            unknown = UnknownVisitor(
-                image_path=unknown_image_path
+            unknown = create_unknown_visitor(
+                db=db,
+                track_id=None,
+                image_path=snapshot_path
             )
-
-            db.add(unknown)
-            db.commit()
 
             results.append({
                 "recognized": False,
                 "name": "Unknown",
                 "similarity": float(similarity),
-                "bbox": face["bbox"]
+                "bbox": face["bbox"],
+                "unknown_id": unknown.id
             })
 
             continue
@@ -232,6 +261,7 @@ def visitor_check_in(
     return {
         "visitors": results
     }
+
 
 @router.post("/visitor/check-out")
 def visitor_check_out(
@@ -319,7 +349,9 @@ def visitor_check_out(
 
         active_visit.status = "OUT"
 
-        active_visit.exit_time = datetime.utcnow()
+        # Was datetime.utcnow() (naive, UTC) while every other write path
+        # uses IST - see app/utils/time_utils.py for why that's a problem.
+        active_visit.exit_time = now_ist()
 
         db.commit()
 
@@ -336,6 +368,7 @@ def visitor_check_out(
     return {
         "visitors": results
     }
+
 
 @router.get("/users")
 def get_users(
@@ -374,17 +407,35 @@ def delete_user(
             detail="User not found"
         )
 
-    if (
-        user.photo_path
-        and os.path.exists(user.photo_path)
-    ):
+    # Previously this checked user.embedding_path, which doesn't exist on
+    # User (it lives on UserFaceSample) - AttributeError on every call.
+    # Embeddings/photos actually live in UserFaceSample rows, one per
+    # registered sample.
+    samples = (
+        db.query(UserFaceSample)
+        .filter(UserFaceSample.user_id == user_id)
+        .all()
+    )
+
+    for sample in samples:
+        if sample.embedding_path and os.path.exists(sample.embedding_path):
+            os.remove(sample.embedding_path)
+        if sample.photo_path and os.path.exists(sample.photo_path):
+            os.remove(sample.photo_path)
+        db.delete(sample)
+
+    if user.photo_path and os.path.exists(user.photo_path):
         os.remove(user.photo_path)
 
-    if (
-        user.embedding_path
-        and os.path.exists(user.embedding_path)
-    ):
-        os.remove(user.embedding_path)
+    # VisitorLog.user_id is a FK with no ON DELETE CASCADE, so deleting a
+    # user who has any visit history would previously raise an
+    # IntegrityError (in addition to the embedding_path crash above).
+    # Detach the history instead of deleting it, so past visits are kept.
+    (
+        db.query(VisitorLog)
+        .filter(VisitorLog.user_id == user_id)
+        .update({"user_id": None})
+    )
 
     db.delete(user)
 
@@ -398,7 +449,8 @@ def delete_user(
             "deleted successfully"
         )
     }
-    
+
+
 def format_duration(seconds):
     if seconds < 0:
         return "0m"
@@ -466,6 +518,12 @@ def search_visitor_logs(
             is_known = False
             image_path = None
 
+        # entry_time/exit_time are now consistently timezone-aware IST
+        # (see models.py + time_utils.py), so this no longer needs the
+        # manual tzinfo-stripping that used to paper over mixed
+        # naive/aware datetimes across different write paths.
+        end = log.exit_time if log.exit_time else now_ist()
+
         results.append({
             "visitor_log_id": log.id,
             "user_id": log.user_id,
@@ -479,7 +537,7 @@ def search_visitor_logs(
             "exit_snapshot": log.exit_snapshot,
             "image_path": image_path,
             "duration": format_duration(
-                ((log.exit_time if log.exit_time else datetime.now(IST).replace(tzinfo=None)) - log.entry_time.replace(tzinfo=None)).total_seconds()
+                (end - log.entry_time).total_seconds()
             )
         })
 
@@ -488,77 +546,96 @@ def search_visitor_logs(
 
 @router.get("/debug/chroma")
 def debug_chroma():
+    # Was `from backend.app.services.chroma_service import collection`,
+    # which doesn't match this project's package layout and raised
+    # ModuleNotFoundError on every call. Fixed to use the already-imported
+    # collection. Still no auth on this - recommend removing/gating this
+    # route before any real deployment since it dumps raw embedding data.
+    return chroma_collection.get()
 
-    from backend.app.services.chroma_service import collection
-
-    return collection.get()
 
 @router.get("/visitor/inside")
 def get_current_visitors(
     db: Session = Depends(get_db)
 ):
 
+    # Was an INNER JOIN on User, which silently excluded every unknown
+    # visitor from the "Current Visitors" table (and, after the
+    # delete_user fix, would also drop any history for a since-deleted
+    # user, since their logs' user_id gets nulled instead of removed).
+    # CurrentVisitorsTable.jsx doesn't care whether a visitor is
+    # known/unknown - it just renders name/entry_time/duration - so an
+    # outer join with the same known/unknown name fallback used in
+    # /visitor/search fixes this without changing the response shape the
+    # frontend already expects.
     visitors = (
-        db.query(
-            VisitorLog,
-            User
-        )
-        .join(
-            User,
-            VisitorLog.user_id == User.id
-        )
-        .filter(
-            VisitorLog.status == "INSIDE"
-        )
+        db.query(VisitorLog, User, UnknownVisitor)
+        .outerjoin(User, VisitorLog.user_id == User.id)
+        .outerjoin(UnknownVisitor, VisitorLog.unknown_visitor_id == UnknownVisitor.id)
+        .filter(VisitorLog.status == "INSIDE")
+        .order_by(VisitorLog.entry_time.desc())
         .all()
     )
 
-    return [
-        {
+    results = []
+    for log, user, unknown in visitors:
+        if user:
+            name = user.name
+        elif unknown:
+            name = f"Unknown Visitor {unknown.id}"
+        else:
+            name = "Unknown"
+
+        results.append({
             "visitor_log_id": log.id,
-            "user_id": user.id,
-            "name": user.name,
+            "user_id": log.user_id,
+            "unknown_visitor_id": log.unknown_visitor_id,
+            "name": name,
             "entry_time": log.entry_time,
-            "duration": format_duration((datetime.now() - log.entry_time).total_seconds())
-        }
-        for log, user in visitors
-    ]
+            "duration": format_duration((now_ist() - log.entry_time).total_seconds())
+        })
+
+    return results
+
 
 @router.get("/visitor/history")
 def get_visitor_history(
     db: Session = Depends(get_db)
 ):
 
+    # Same INNER JOIN issue as /visitor/inside above - fixed the same way.
     history = (
-        db.query(
-            VisitorLog,
-            User
-        )
-        .join(
-            User,
-            VisitorLog.user_id == User.id
-        )
-        .order_by(
-            VisitorLog.entry_time.desc()
-        )
+        db.query(VisitorLog, User, UnknownVisitor)
+        .outerjoin(User, VisitorLog.user_id == User.id)
+        .outerjoin(UnknownVisitor, VisitorLog.unknown_visitor_id == UnknownVisitor.id)
+        .order_by(VisitorLog.entry_time.desc())
         .all()
     )
 
-    return [
-        {
+    results = []
+    for log, user, unknown in history:
+        if user:
+            name = user.name
+        elif unknown:
+            name = f"Unknown Visitor {unknown.id}"
+        else:
+            name = "Unknown"
+
+        results.append({
             "visitor_log_id": log.id,
-            "user_id": user.id,
-            "name": user.name,
+            "user_id": log.user_id,
+            "name": name,
             "entry_time": log.entry_time,
             "exit_time": log.exit_time,
             "status": log.status,
             "duration": format_duration(
-                ((log.exit_time if log.exit_time else datetime.now()) - log.entry_time).total_seconds()
+                ((log.exit_time if log.exit_time else now_ist()) - log.entry_time).total_seconds()
             )
-        }
-        for log, user in history
-    ]
-    
+        })
+
+    return results
+
+
 @router.get("/unknown-visitors")
 def get_unknown_visitors(
     db: Session = Depends(get_db)
@@ -581,7 +658,8 @@ def get_unknown_visitors(
         }
         for visitor in visitors
     ]
-    
+
+
 @router.put(
     "/unknown-visitors/{visitor_id}/review"
 )
@@ -613,7 +691,8 @@ def mark_unknown_visitor_reviewed(
         "message":
             "Unknown visitor marked as reviewed"
     }
-    
+
+
 @router.get("/dashboard/stats")
 def dashboard_stats(
     db: Session = Depends(get_db)
@@ -645,9 +724,10 @@ def dashboard_stats(
         .count()
     )
 
-    # Today's entries & exits (using the local date)
-    from datetime import date
-    today = date.today()
+    # Today's entries & exits. Was date.today() (naive server-local date)
+    # compared against IST timestamps - could be off by a day right around
+    # midnight depending on server timezone. Use IST "today" consistently.
+    today = now_ist().date()
 
     todays_entries = (
         db.query(VisitorLog)
@@ -672,3 +752,85 @@ def dashboard_stats(
         "todays_entries": todays_entries,
         "todays_exits": todays_exits
     }
+
+
+@router.get("/session/active")
+def get_active_session(db: Session = Depends(get_db)):
+    session = db.query(CameraSession)\
+        .filter(CameraSession.status == "ACTIVE")\
+        .first()
+
+    if not session:
+        return {"session_id": None}
+
+    return {"session_id": session.id}
+
+
+@router.get("/session/live/{session_id}")
+def live_session(session_id: int):
+    from app.live_state import get_live_state
+    state = get_live_state()
+
+    if state["session_id"] == session_id:
+        return {
+            "frame": state["frame"],
+            "active_tracks": state["active_tracks"]
+        }
+
+    return {
+        "frame": None,
+        "active_tracks": []
+    }
+
+
+@router.get("/session/history")
+def get_session_history(db: Session = Depends(get_db)):
+    sessions = db.query(CameraSession).order_by(CameraSession.id.desc()).all()
+    return [
+        {
+            "id": s.id,
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+            "status": s.status,
+            "total_visitors": s.total_visitors,
+            "known_visitors": s.known_visitors,
+            "unknown_visitors": s.unknown_visitors
+        }
+        for s in sessions
+    ]
+
+
+@router.get("/session/{session_id}/visitors")
+def get_session_visitors(session_id: int, db: Session = Depends(get_db)):
+    session = db.query(CameraSession).filter(CameraSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    visitor_logs = []
+    for log in session.logs:
+        if log.user_id:
+            user = db.query(User).filter(User.id == log.user_id).first()
+            name = user.name if user else "Unknown"
+            type_visitor = "known"
+        elif log.unknown_visitor_id:
+            unknown = db.query(UnknownVisitor).filter(UnknownVisitor.id == log.unknown_visitor_id).first()
+            name = unknown.name if unknown else f"Unknown Visitor {log.unknown_visitor_id}"
+            type_visitor = "unknown"
+        else:
+            name = "Unknown"
+            type_visitor = "unknown"
+
+        visitor_logs.append({
+            "id": log.id,
+            "user_id": log.user_id,
+            "unknown_visitor_id": log.unknown_visitor_id,
+            "name": name,
+            "type": type_visitor,
+            "entry_time": log.entry_time,
+            "exit_time": log.exit_time,
+            "status": log.status,
+            "entry_snapshot": log.entry_snapshot,
+            "exit_snapshot": log.exit_snapshot
+        })
+
+    return visitor_logs

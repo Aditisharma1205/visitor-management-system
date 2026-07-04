@@ -18,6 +18,7 @@ def get_cached_identity(track_id):
         del track_cache[track_id]
         return None
 
+    data["timestamp"] = time.time()
     return data
 def cleanup_cache():
 
