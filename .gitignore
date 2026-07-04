@@ -1,45 +1,22 @@
-# ======================
-# Python Backend
-# ======================
+# Environment files
+backend/app/.env
 
-backend/venv/
-backend/__pycache__/
-backend/app/__pycache__/
+# ChromaDB
+backend/chroma_db/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
 **/__pycache__/
 *.pyc
 
-# Environment Variables
-backend/.env
+# Virtual environments
+venv/
+.venv/
 
-# SQLite Database
-backend/visionpass.db
-
-# Generated Data
+# Uploads
 backend/uploads/*
 !backend/uploads/.gitkeep
-
-backend/embeddings/*
-!backend/embeddings/.gitkeep
-
-backend/faiss_index/*
-!backend/faiss_index/.gitkeep
-
-# ======================
-# React Frontend
-# ======================
-
-frontend/node_modules/
-frontend/dist/
-
-# ======================
-# VS Code
-# ======================
-
-.vscode/
-
-# ======================
-# OS Files
-# ======================
-
-.DS_Store
-Thumbs.db
