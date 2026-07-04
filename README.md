@@ -1,163 +1,344 @@
-🧠 VisionPass – AI-Powered Real-Time Face Recognition & Visitor Management System
+# 🧠 Visitor Management System – AI-Powered Real-Time Face Recognition
 
-A real-time AI-based face recognition system that automates visitor tracking using webcam input, deep learning models, and vector-based face matching. The system integrates anti-spoofing, live tracking, and structured logging to create a secure and intelligent identity management pipeline.
+An AI-powered real-time Visitor Management System that automates visitor registration, identity verification, and live monitoring using deep learning, computer vision, and vector similarity search. The system integrates anti-spoofing, real-time tracking, WebSocket streaming, and hybrid database architecture to provide secure and intelligent visitor management.
 
-🚀 Features
-🎥 Real-time webcam face detection
-🧠 Face recognition using InsightFace embeddings
-🛡️ Anti-spoofing detection using MiniFASNet (ONNX)
-👤 User registration with face embedding storage
-📊 Visitor entry & exit logging system
-🔍 Fast face matching using ChromaDB vector search
-🗄️ Structured data storage using MySQL
-⚡ Real-time communication using WebSockets
-📸 Snapshot capture for entries, exits, and unknown users
-📱 Interactive React-based dashboard
+---
 
-🏗️ System Architecture
-Webcam (React Frontend)
-        ↓
-WebSocket Streaming
-        ↓
-FastAPI Backend
-        ↓
-Face Detection (InsightFace)
-        ↓
-Anti-Spoofing (MiniFASNet)
-        ↓
-Embedding Generation
-        ↓
-ChromaDB (Face Matching)
-        ↓
-MySQL (User + Logs Storage)
-        ↓
-React Dashboard Updates
+# 🚀 Features
 
-🧰 Tech Stack
+### 👤 Visitor Management
+- Face-based visitor registration
+- Automatic visitor check-in
+- Current visitor tracking
+- Visitor entry & exit logging
+- Complete visitor history
+- Visitor search functionality
 
-Frontend
-React.js
-react-webcam
-WebSocket API
-Tailwind CSS
+### 🧠 Face Recognition
+- Real-time face detection
+- Face recognition using InsightFace embeddings
+- Embedding aggregation for improved recognition
+- ChromaDB vector similarity search
+- Recognition cache for faster inference
+- Re-identification memory for stable tracking
 
-Backend
-FastAPI (Python)
-WebSockets
-SQLAlchemy
-AI / ML
-InsightFace (buffalo_l model)
-MiniFASNet (ONNX Runtime)
-NumPy / Cosine Similarity
+### 🛡️ Security
+- Anti-spoofing detection using MiniFASNet (ONNX)
+- Unknown visitor detection
+- Snapshot capture for unknown visitors
+- Duplicate recognition prevention
 
-Databases
-MySQL (structured data)
-ChromaDB (vector embeddings)
+### 📊 Admin Dashboard
+- Live monitoring dashboard
+- Active session monitoring
+- Current visitors table
+- Unknown visitors management
+- Visitor history
+- Session history
+- Live recognition status
 
+### ⚡ Real-Time Processing
+- Live webcam streaming
+- WebSocket-based communication
+- Real-time face tracking
+- Zone-based visitor monitoring
+- Automatic session management
 
-📂 Project Structure
-Face-Recognition-System/
+---
+
+# 🏗️ System Architecture
+
+```
+User Frontend (React)
+        │
+        ▼
+ Webcam Streaming
+        │
+        ▼
+ WebSocket Communication
+        │
+        ▼
+ FastAPI Backend
+        │
+        ├───────────────┐
+        │               │
+        ▼               ▼
+ Face Detection    Anti-Spoofing
+ (InsightFace)     (MiniFASNet)
+        │
+        ▼
+ Face Embedding
+        │
+        ▼
+ Embedding Aggregation
+        │
+        ▼
+ ChromaDB Vector Search
+        │
+        ▼
+ Recognition Cache
+        │
+        ▼
+ Re-ID Memory
+        │
+        ▼
+ Visitor Logging
+        │
+        ▼
+ MySQL Database
+        │
+        ▼
+ Admin Dashboard Updates
+```
+
+---
+
+# 🧰 Tech Stack
+
+## Frontend
+
+### User Frontend
+- React.js
+- Vite
+- Axios
+- WebSocket API
+
+### Admin Frontend
+- React.js
+- Vite
+- Axios
+- React Router
+
+---
+
+## Backend
+
+- FastAPI
+- SQLAlchemy
+- WebSockets
+- OpenCV
+- NumPy
+- ONNX Runtime
+
+---
+
+## AI / ML
+
+- InsightFace (buffalo_l)
+- MiniFASNet (Anti-Spoofing)
+- Face Embedding Aggregation
+- Cosine Similarity Matching
+
+---
+
+## Databases
+
+- MySQL (Structured Data)
+- ChromaDB (Vector Embeddings)
+
+---
+
+# 📂 Project Structure
+
+```
+face-recog-sys/
+│
+├── admin-frontend/
+│   ├── src/
+│   ├── public/
+│   └── package.json
 │
 ├── backend/
 │   ├── app/
+│   │   ├── antispoof/
 │   │   ├── services/
-│   │   ├── models/
-│   │   ├── routes/
-│   │   ├── websocket/
+│   │   ├── utils/
+│   │   ├── websocket_routes.py
+│   │   ├── routes.py
+│   │   ├── tracker.py
+│   │   ├── models.py
 │   │   └── main.py
-│   ├── reid_memory.py
-│   ├── tracker.py
-│   └── requirements.txt
+│   │
+│   ├── uploads/
+│   ├── requirements.txt
+│   └── run.py
 │
-├── frontend/
+├── user-frontend/
 │   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── Recognize.jsx
+│   ├── public/
 │   └── package.json
 │
-├── embeddings/
-├── uploads/
 ├── README.md
+└── .gitignore
+```
 
+---
 
-⚙️ Installation & Setup
-1. Clone Repository
-git clone https://github.com/your-username/visionpass.git
-cd visionpass
-2. Backend Setup
+# ⚙️ Installation & Setup
+
+## 1️⃣ Clone Repository
+
+```bash
+git clone https://github.com/Aditisharma1205/visitor-management-system.git
+
+cd visitor-management-system
+```
+
+---
+
+## 2️⃣ Backend Setup
+
+```bash
 cd backend
+
 python -m venv venv
-venv\Scripts\activate   # Windows
+```
 
+Activate virtual environment
+
+### Windows
+
+```bash
+venv\Scripts\activate
+```
+
+Install dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-Run server:
+Create a `.env` file inside `backend/app`
 
+```env
+DATABASE_URL=your_database_url
+```
+
+Run the backend
+
+```bash
+python run.py
+```
+
+or
+
+```bash
 uvicorn app.main:app --reload
-3. Frontend Setup
-cd frontend
+```
+
+---
+
+## 3️⃣ User Frontend
+
+```bash
+cd user-frontend
+
 npm install
-npm start
-4. Database Setup (MySQL)
 
-Create database:
+npm run dev
+```
 
-CREATE DATABASE visionpass;
+---
 
-Import tables (handled via SQLAlchemy models).
+## 4️⃣ Admin Frontend
 
-🧠 How It Works
-User registers with face image
-System extracts face embedding using InsightFace
-Embedding is stored in ChromaDB
-Live webcam feed sends frames via WebSocket
-Backend detects face and extracts embedding
-Embedding is matched with stored vectors
-If match found → user identified
-Otherwise → marked as unknown visitor
-Entry/exit logs stored in MySQL
+```bash
+cd admin-frontend
 
-🛡️ Anti-Spoofing
-Uses MiniFASNet ONNX model
-Detects fake faces (photo/video attacks)
-Works with track-based smoothing for stability
+npm install
 
-📊 Database Design
-Users Table
-id
-name
-embedding_path
-photo_path
-Visitor Logs
-id
-user_id
-entry_time
-exit_time
-status
-Unknown Visitors
-id
-timestamp
-snapshot_path
+npm run dev
+```
 
-📌 Key Highlights
-Real-time AI pipeline
-Hybrid database architecture (MySQL + ChromaDB)
-Anti-spoofing integrated system
-WebSocket-based streaming
-Production-style modular backend design
+---
 
-🚀 Future Improvements
-GPU acceleration (CUDA support)
-Redis-based distributed tracking
-JWT authentication system
-Cloud storage (AWS S3) for images
-Scalable vector database (Qdrant/Milvus)
+# 🧠 How It Works
 
-👨‍💻 Author
+1. User registers with facial images.
+2. Face embeddings are generated using InsightFace.
+3. Embeddings are stored in ChromaDB.
+4. Live webcam frames are streamed via WebSocket.
+5. Backend performs face detection.
+6. Anti-spoofing validates the face.
+7. Face embeddings are generated.
+8. Embeddings are matched against ChromaDB.
+9. Registered visitors are identified.
+10. Unknown visitors are stored separately.
+11. Visitor logs are automatically maintained.
+12. Admin dashboard updates in real time.
 
-Built project focused on real-time AI systems, computer vision, and scalable backend architecture.
+---
 
-📄 License
+# 🛡️ Anti-Spoofing
 
-This project is for academic and learning purposes.
+- MiniFASNet ONNX model
+- Detects spoof attacks using printed photos or mobile screens
+- Integrated directly into the real-time recognition pipeline
+- Recognition proceeds only after successful liveness verification
+
+---
+
+# 📊 Database Design
+
+## MySQL
+
+### Users
+- User Details
+- Registered Face Information
+
+### Visitor Logs
+- Entry Time
+- Exit Time
+- Status
+- Session Details
+
+### Unknown Visitors
+- Snapshot
+- Detection Timestamp
+
+### Sessions
+- Recognition Sessions
+- Session Statistics
+
+---
+
+## ChromaDB
+
+Stores high-dimensional face embeddings for fast vector similarity search.
+
+---
+
+# 📌 Key Highlights
+
+- Real-time AI-powered face recognition
+- Anti-spoofing integrated recognition pipeline
+- Hybrid database architecture (MySQL + ChromaDB)
+- WebSocket-based live streaming
+- Modular FastAPI backend
+- Embedding aggregation for robust recognition
+- Re-identification memory for stable tracking
+- Unknown visitor management
+- Live admin monitoring dashboard
+- Production-style project architecture
+
+---
+
+# 🚀 Future Improvements
+
+- JWT Authentication
+- Multi-camera support
+- Docker deployment
+- GPU acceleration (CUDA)
+- Redis-based distributed tracking
+- Qdrant/Milvus vector database support
+- Email/SMS notifications
+- Analytics dashboard
+- Cloud deployment (AWS/Azure)
+
+---
+
+# 👨‍💻 Author
+
+**Aditi Sharma**
+
+B.Tech Computer Science Engineering
